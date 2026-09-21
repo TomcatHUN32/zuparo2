@@ -1,0 +1,8 @@
+/* App-level styles */
+.App { min-height: 100vh; }
+
+/* Prevent transform breakage; specific transitions only */
+button, a, input { transition: background-color 180ms ease, color 180ms ease, border-color 180ms ease, box-shadow 180ms ease; }
+
+/* Scoped selection color on dark customer pages */
+.zuparo-dark ::selection { background: #d4af37; color: #000; }

@@ -1,0 +1,6 @@
+{
+  "name": "ZUPARO Éttermi és Rendelési Rendszer",
+  "description": "ZUPARO modern éttermi rendelési platform és adminisztrációs rendszer",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
