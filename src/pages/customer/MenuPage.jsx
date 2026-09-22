@@ -12,9 +12,45 @@ const MenuPage = () => {
   const { menu, restaurantStatus } = useData();
   const { add, count, subtotal } = useCart();
   const nav = useNavigate();
-  const [cat, setCat] = useState('pizzak');
+  const [cat, setCat] = useState('all');
   const [q, setQ] = useState('');
-  const items = menu.filter((m) => m.category === cat && (q ? (m.name + ' ' + m.description).toLowerCase().includes(q.toLowerCase()) : true));
+
+  // Dynamic categories collected from actual menu items + default categories
+  const dynamicCategories = React.useMemo(() => {
+    const list = [{ id: 'all', name: 'Összes étel' }];
+    const seen = new Set();
+    // First add from active menu items
+    menu.forEach((m) => {
+      if (m.category && !seen.has(m.category.toLowerCase())) {
+        seen.add(m.category.toLowerCase());
+        list.push({ id: m.category, name: m.category });
+      }
+    });
+    // Add default categories if not already present
+    CATEGORIES.forEach((c) => {
+      const match = list.find((item) =>
+        item.name.toLowerCase().includes(c.name.toLowerCase()) ||
+        c.name.toLowerCase().includes(item.name.toLowerCase())
+      );
+      if (!match) {
+        list.push(c);
+      }
+    });
+    return list;
+  }, [menu]);
+
+  const items = menu.filter((m) => {
+    const matchCat =
+      cat === 'all' ||
+      m.category === cat ||
+      (m.category || '').toLowerCase() === cat.toLowerCase() ||
+      (cat === 'pizzak' && (m.category?.toLowerCase().includes('pizza') || m.name?.toLowerCase().includes('pizza'))) ||
+      (cat === 'hazias' && (m.category?.toLowerCase().includes('hazi') || m.category?.toLowerCase().includes('házias'))) ||
+      (cat === 'sultek' && (m.category?.toLowerCase().includes('sült') || m.category?.toLowerCase().includes('sult'))) ||
+      (cat === 'italok' && (m.category?.toLowerCase().includes('ital') || m.category?.toLowerCase().includes('üdítő')));
+    const matchQuery = q ? (m.name + ' ' + (m.description || '')).toLowerCase().includes(q.toLowerCase()) : true;
+    return matchCat && matchQuery;
+  });
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-10 pb-32">
@@ -50,7 +86,7 @@ const MenuPage = () => {
       </div>
 
       <div className="flex flex-wrap gap-2 mb-6">
-        {CATEGORIES.map((c) => (
+        {dynamicCategories.map((c) => (
           <button
             key={c.id}
             onClick={() => setCat(c.id)}

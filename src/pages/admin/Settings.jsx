@@ -1,7 +1,45 @@
 import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useData } from '../../context/DataContext';
 import { formatFt } from '../../mock/mockData';
-import { MapPin, Bike, Ticket, ClipboardList, Plus, Trash2, Pencil, Check, X, ArrowRight, FileArchive, BadgeCheck, Search, Calendar, Printer, RefreshCw, CheckCircle2, Clock, Eye, History, Package, Recycle } from 'lucide-react';
+import {
+  MapPin,
+  Bike,
+  Ticket,
+  ClipboardList,
+  Plus,
+  Trash2,
+  Pencil,
+  Check,
+  X,
+  ArrowRight,
+  FileArchive,
+  BadgeCheck,
+  Search,
+  Calendar,
+  Printer,
+  RefreshCw,
+  CheckCircle2,
+  Clock,
+  Eye,
+  History,
+  Package,
+  Recycle,
+  Database,
+  Server,
+  AlertTriangle,
+  UploadCloud,
+  DownloadCloud,
+  Terminal,
+  Copy,
+  ExternalLink,
+  Upload,
+  FolderSync,
+  FileJson,
+  FileSpreadsheet,
+  Sparkles,
+  Utensils,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import axios from 'axios';
 
@@ -14,17 +52,33 @@ const TABS = [
   { id: 'coupons', label: 'Kuponkódok', icon: Ticket },
   { id: 'dayclose', label: 'Napi zárás', icon: ClipboardList },
   { id: 'courierclose', label: 'Futár zárás', icon: BadgeCheck },
+  { id: 'database', label: 'Adatbázis & MongoDB', icon: Database },
 ];
 
 const Settings = () => {
-  const [tab, setTab] = useState('status');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialTab = searchParams.get('tab') || 'status';
+  const [tab, setTab] = useState(initialTab);
+
+  const handleTabChange = (newTab) => {
+    setTab(newTab);
+    setSearchParams({ tab: newTab });
+  };
+
+  useEffect(() => {
+    const qTab = searchParams.get('tab');
+    if (qTab && qTab !== tab) {
+      setTab(qTab);
+    }
+  }, [searchParams]);
+
   return (
     <div className="p-4 sm:p-8">
       <div className="flex flex-wrap gap-2 mb-6 border-b border-neutral-200 pb-3">
         {TABS.map((t) => (
           <button
             key={t.id}
-            onClick={() => setTab(t.id)}
+            onClick={() => handleTabChange(t.id)}
             className={`px-3.5 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-medium inline-flex items-center gap-2 transition-colors ${
               tab === t.id ? 'bg-neutral-900 text-white shadow-xs' : 'bg-white text-neutral-700 border border-neutral-200 hover:bg-neutral-50'
             }`}
@@ -39,6 +93,7 @@ const Settings = () => {
       {tab === 'coupons' && <CouponsTab />}
       {tab === 'dayclose' && <DayCloseTab />}
       {tab === 'courierclose' && <CourierCloseTab />}
+      {tab === 'database' && <DatabaseTab />}
     </div>
   );
 };
@@ -930,6 +985,751 @@ const StatusTab = () => {
             className="px-6 py-2.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-white text-sm font-bold shadow-md transition-all inline-flex items-center gap-2 disabled:opacity-50"
           >
             <Check size={16} /> Beállítások és díjak mentése
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ---------------- Database & MongoDB ----------------
+const DatabaseTab = () => {
+  const [status, setStatus] = useState(null);
+  const [inspectData, setInspectData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [customUri, setCustomUri] = useState('');
+
+  // Legacy Migrator state
+  const [selectedSourceCol, setSelectedSourceCol] = useState('');
+  const [selectedTargetType, setSelectedTargetType] = useState('menu');
+  const [migrateOverwrite, setMigrateOverwrite] = useState(false);
+
+  // File / JSON Import state
+  const [importTarget, setImportTarget] = useState('menu');
+  const [importOverwrite, setImportOverwrite] = useState(false);
+  const [jsonInput, setJsonInput] = useState('');
+  const [fileParsedCount, setFileParsedCount] = useState(null);
+
+  const fetchStatus = async () => {
+    try {
+      setLoading(true);
+      const res = await axios.get(`${API}/system/db-status`);
+      setStatus(res.data);
+      if (!customUri && res.data?.uri) {
+        setCustomUri(res.data.uri);
+      }
+      if (res.data?.isMongoConnected) {
+        fetchInspect();
+      }
+    } catch (err) {
+      toast.error('Nem sikerült lekérni az adatbázis állapotát.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchInspect = async () => {
+    try {
+      const res = await axios.get(`${API}/system/db-inspect`);
+      setInspectData(res.data);
+      if (res.data?.collections?.length && !selectedSourceCol) {
+        // pick first non-standard collection if available
+        const nonStandard = res.data.collections.find(c => !['users', 'menuitems', 'zones', 'couriers', 'inventories', 'coupons', 'orders', 'customers', 'daycloses', 'restaurantstatuses'].includes(c.name));
+        setSelectedSourceCol(nonStandard ? nonStandard.name : res.data.collections[0].name);
+      }
+    } catch (e) {}
+  };
+
+  useEffect(() => {
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleReconnect = async (overrideUri) => {
+    try {
+      setActionLoading(true);
+      const uriToTest = overrideUri || customUri;
+      toast.info('Csatlakozás a MongoDB-hez...', { duration: 3000 });
+      const res = await axios.post(`${API}/system/db-reconnect`, { uri: uriToTest });
+      if (res.data?.success) {
+        toast.success(`Sikeres kapcsolat a MongoDB-hez! (${res.data.dbName})`);
+      } else {
+        toast.error(`Nem sikerült kapcsolódni: ${res.data?.error || 'Ismeretlen hiba'}`);
+      }
+      await fetchStatus();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Hiba történt a csatlakozási kísérlet során.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handlePushAll = async () => {
+    if (!window.confirm('Biztosan ki szeretnéd másolni az összes memóriában lévő étlapot, rendelést és készletet a MongoDB-be?')) return;
+    try {
+      setActionLoading(true);
+      const res = await axios.post(`${API}/system/db-push-all`);
+      toast.success(res.data?.message || 'Sikeres mentés a MongoDB-be!');
+      await fetchStatus();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Sikertelen mentés.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handlePullAll = async () => {
+    if (!window.confirm('Figyelem: Ez felülírja a memóriában lévő állapotot a MongoDB-ben tárolt verzióval. Folytatod?')) return;
+    try {
+      setActionLoading(true);
+      const res = await axios.post(`${API}/system/db-pull-all`);
+      toast.success(res.data?.message || 'Sikeres betöltés MongoDB-ből!');
+      await fetchStatus();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Sikertelen betöltés.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleMigrate = async () => {
+    if (!selectedSourceCol) {
+      toast.error('Válassz ki egy forrás kollekciót!');
+      return;
+    }
+    if (!window.confirm(`Biztosan át szeretnéd emelni az adatokat a(z) "${selectedSourceCol}" kollekcióból a "${selectedTargetType}" modulba?`)) return;
+
+    try {
+      setActionLoading(true);
+      const res = await axios.post(`${API}/system/db-migrate-collection`, {
+        sourceCollection: selectedSourceCol,
+        targetType: selectedTargetType,
+        overwrite: migrateOverwrite,
+      });
+      toast.success(res.data?.message || 'Sikeres átemelés!');
+      await fetchStatus();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Hiba történt az átemeléskor.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleMigrateLegacyAll = async () => {
+    if (!window.confirm('Biztosan be szeretnéd tölteni a régi Szesztestvérek adatbázis adatait (termékek, városok, felhasználók, rendelések, kuponok)?')) return;
+    try {
+      setActionLoading(true);
+      const res = await axios.post(`${API}/system/migrate-legacy-szesztestverek`);
+      if (res.data?.success) {
+        toast.success(res.data.message || 'Sikeres átemelés a régi adatbázisból!');
+        await fetchStatus();
+        setTimeout(() => window.location.reload(), 1200);
+      } else {
+        toast.error(res.data?.error || 'Sikertelen átemelés.');
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Hiba történt a régi rendszer átemelése során.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleLoadDefaults = async () => {
+    if (!window.confirm('Betöltöd a Szesztestvérek 15 autentikus ételét és italát, a szállítási településeket (Szuhogy, Rudabánya, Alsótelekes, stb.) és a kuponokat?')) return;
+    try {
+      setActionLoading(true);
+      const res = await axios.post(`${API}/system/load-szesztestverek-defaults`);
+      if (res.data?.success) {
+        toast.success(res.data.message || 'Szesztestvérek adatok sikeresen betöltve!');
+        await fetchStatus();
+        setTimeout(() => window.location.reload(), 1200);
+      } else {
+        toast.error(res.data?.error || 'Hiba a betöltéskor.');
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Hiba a betöltéskor.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result;
+      if (typeof content !== 'string') return;
+
+      try {
+        if (file.name.endsWith('.json') || content.trim().startsWith('[') || content.trim().startsWith('{')) {
+          const parsed = JSON.parse(content);
+          const list = Array.isArray(parsed) ? parsed : (parsed.items || parsed.data || [parsed]);
+          setJsonInput(JSON.stringify(list, null, 2));
+          setFileParsedCount(list.length);
+          toast.success(`${list.length} elem beolvasva a JSON fájlból!`);
+        } else if (file.name.endsWith('.csv')) {
+          // Simple CSV parser
+          const lines = content.split('\n').map(l => l.trim()).filter(Boolean);
+          if (lines.length > 1) {
+            const headers = lines[0].split(/[;,]/).map(h => h.trim().replace(/^["']|["']$/g, ''));
+            const list = [];
+            for (let i = 1; i < lines.length; i++) {
+              const vals = lines[i].split(/[;,]/).map(v => v.trim().replace(/^["']|["']$/g, ''));
+              const obj = {};
+              headers.forEach((h, idx) => {
+                obj[h] = vals[idx] !== undefined ? vals[idx] : '';
+              });
+              list.push(obj);
+            }
+            setJsonInput(JSON.stringify(list, null, 2));
+            setFileParsedCount(list.length);
+            toast.success(`${list.length} sor beolvasva a CSV fájlból!`);
+          }
+        }
+      } catch (err) {
+        toast.error('Nem sikerült feldolgozni a fájlt. Ellenőrizd a formátumot!');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleDirectImport = async () => {
+    if (!jsonInput.trim()) {
+      toast.error('Illessz be vagy tölts fel adatot az importáláshoz!');
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(jsonInput);
+      const items = Array.isArray(parsed) ? parsed : (parsed.items || parsed.data || [parsed]);
+      if (!items.length) {
+        toast.error('Az adathalmaz üres.');
+        return;
+      }
+
+      setActionLoading(true);
+      const res = await axios.post(`${API}/system/import-json`, {
+        targetType: importTarget,
+        items,
+        overwrite: importOverwrite,
+      });
+
+      toast.success(res.data?.message || 'Sikeres importálás!');
+      setJsonInput('');
+      setFileParsedCount(null);
+      await fetchStatus();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Érvénytelen JSON formátum!');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text);
+    toast.success('Parancs a vágólapra másolva!');
+  };
+
+  const isConnected = Boolean(status?.isMongoConnected);
+
+  const collections = [
+    { key: 'menuItems', label: 'Étlap termékek', mongo: status?.mongoCounts?.menuItems || 0, memory: status?.memoryCounts?.menuItems || 0 },
+    { key: 'orders', label: 'Rendelések', mongo: status?.mongoCounts?.orders || 0, memory: status?.memoryCounts?.orders || 0 },
+    { key: 'inventory', label: 'Raktárkészlet', mongo: status?.mongoCounts?.inventory || 0, memory: status?.memoryCounts?.inventory || 0 },
+    { key: 'users', label: 'Felhasználók', mongo: status?.mongoCounts?.users || 0, memory: status?.memoryCounts?.users || 0 },
+    { key: 'zones', label: 'Szállítási zónák', mongo: status?.mongoCounts?.zones || 0, memory: status?.memoryCounts?.zones || 0 },
+    { key: 'couriers', label: 'Futárok', mongo: status?.mongoCounts?.couriers || 0, memory: status?.memoryCounts?.couriers || 0 },
+    { key: 'coupons', label: 'Kuponkódok', mongo: status?.mongoCounts?.coupons || 0, memory: status?.memoryCounts?.coupons || 0 },
+    { key: 'dayCloses', label: 'Napi pénztárzárások', mongo: status?.mongoCounts?.dayCloses || 0, memory: status?.memoryCounts?.dayCloses || 0 },
+  ];
+
+  return (
+    <div className="space-y-6 max-w-5xl">
+      {/* Status Hero Card */}
+      <div className={`p-6 rounded-2xl border transition-all ${
+        isConnected
+          ? 'bg-emerald-50/70 border-emerald-300 text-emerald-950'
+          : 'bg-rose-50/70 border-rose-300 text-rose-950'
+      }`}>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-start gap-4">
+            <div className={`p-3.5 rounded-2xl ${isConnected ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'} shadow-md shrink-0`}>
+              <Database size={28} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${
+                  isConnected ? 'bg-emerald-200/80 text-emerald-900' : 'bg-rose-200/80 text-rose-900'
+                }`}>
+                  <span className={`h-2.5 w-2.5 rounded-full ${isConnected ? 'bg-emerald-600 animate-pulse' : 'bg-rose-600'}`} />
+                  {isConnected ? 'MongoDB Kapcsolat Aktív' : 'MongoDB Offline (Memória mód)'}
+                </span>
+                <span className="text-xs text-neutral-500 font-mono">
+                  Állapot: {status?.readyStateText || 'Betöltés...'}
+                </span>
+              </div>
+              <h2 className="text-xl sm:text-2xl font-black mt-2">
+                {isConnected
+                  ? `Csatlakoztatva a "${status?.databaseName || 'szesztestverek'}" adatbázishoz`
+                  : 'A szerver jelenleg a beépített memóriát használja'}
+              </h2>
+              <p className="text-xs sm:text-sm mt-1 text-neutral-600">
+                {isConnected
+                  ? 'Minden rendelés, étlap módosítás és készletváltozás közvetlenül és azonnal a MongoDB-be mentődik.'
+                  : 'Az adatok működnek a memóriában, de a szerver újraindításakor nem maradnak meg, amíg a MongoDB nem fut.'}
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-row md:flex-col gap-2 shrink-0">
+            <button
+              onClick={() => handleReconnect()}
+              disabled={actionLoading}
+              className="px-4 py-2.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-white text-xs sm:text-sm font-bold shadow-xs inline-flex items-center justify-center gap-2 disabled:opacity-50 transition-all"
+            >
+              <RefreshCw size={14} className={actionLoading ? 'animate-spin' : ''} />
+              Újratesztelés
+            </button>
+          </div>
+        </div>
+
+        {/* Detailed Error message if offline */}
+        {!isConnected && status?.mongoLastError && (
+          <div className="mt-4 p-4 rounded-xl bg-white border border-rose-200 text-rose-900 text-xs sm:text-sm shadow-xs">
+            <div className="font-bold flex items-center gap-1.5 text-rose-700 mb-1">
+              <AlertTriangle size={16} /> Kapcsolódási hiba részletei:
+            </div>
+            <code className="block bg-rose-50 p-2.5 rounded-lg font-mono text-xs text-rose-800 border border-rose-100 break-all">
+              {status.mongoLastError}
+            </code>
+            <p className="mt-2 text-neutral-700 text-xs leading-relaxed">
+              💡 <strong>Mit jelent ez?</strong> A háttérben futó Node.js szerver nem érte el a MongoDB démont a <code className="bg-neutral-100 px-1 py-0.5 rounded font-mono">{status?.uri || 'mongodb://127.0.0.1:27017/szesztestverek'}</code> címen.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Szesztestvérek Legacy System & Authentic Menu Quick-Actions */}
+      <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-6 shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-amber-200/60 pb-4 mb-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-amber-500 text-white rounded-xl shadow-xs">
+              <Sparkles size={22} />
+            </div>
+            <div>
+              <h3 className="font-bold text-base text-neutral-900">
+                Szesztestvérek Régi Rendszer &amp; Étlap Átemelés
+              </h3>
+              <p className="text-xs text-neutral-600">
+                Egyetlen kattintással átemelheted a régi adatbázisod kollekcióit, vagy feltöltheted az autentikus étlapot és szállítási zónákat.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="bg-white/80 p-4 rounded-xl border border-amber-200/80 flex flex-col justify-between">
+            <div>
+              <div className="font-bold text-sm text-neutral-900 flex items-center gap-2">
+                <FolderSync size={16} className="text-amber-600" />
+                Régi MongoDB Kollekciók Teljes Átemelése
+              </div>
+              <p className="text-xs text-neutral-600 mt-1">
+                Kiolvassa a korábbi <code className="bg-amber-100/60 px-1 py-0.5 rounded font-mono text-[11px]">products</code> (ételek), <code className="bg-amber-100/60 px-1 py-0.5 rounded font-mono text-[11px]">cities</code> (települések), <code className="bg-amber-100/60 px-1 py-0.5 rounded font-mono text-[11px]">users</code> és <code className="bg-amber-100/60 px-1 py-0.5 rounded font-mono text-[11px]">orders</code> kollekciókat és közvetlenül átemeli őket.
+              </p>
+            </div>
+            <button
+              onClick={handleMigrateLegacyAll}
+              disabled={actionLoading}
+              className="mt-3 w-full py-2.5 px-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-xs inline-flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+            >
+              <FolderSync size={14} />
+              {actionLoading ? 'Átemelés folyamatban...' : 'Régi adatbázis átemelése most'}
+            </button>
+          </div>
+
+          <div className="bg-white/80 p-4 rounded-xl border border-amber-200/80 flex flex-col justify-between">
+            <div>
+              <div className="font-bold text-sm text-neutral-900 flex items-center gap-2">
+                <Utensils size={16} className="text-orange-600" />
+                Autentikus Szesztestvérek Étlap &amp; Zónák Betöltése
+              </div>
+              <p className="text-xs text-neutral-600 mt-1">
+                Azonnal betölti a 15 valódi Szesztestvérek ételt és italt (pörköltek, sültek, pizzák, árak, csomagolási díjak) és a Szuhogy környéki szállítási zónákat. <strong>Nem kell semmit kézzel felvinned!</strong>
+              </p>
+            </div>
+            <button
+              onClick={handleLoadDefaults}
+              disabled={actionLoading}
+              className="mt-3 w-full py-2.5 px-3 bg-neutral-900 hover:bg-neutral-800 text-white rounded-xl text-xs font-bold shadow-xs inline-flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+            >
+              <Sparkles size={14} />
+              {actionLoading ? 'Betöltés...' : 'Autentikus adatok betöltése (Azonnali indítás)'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* MongoDB Quick-Fix / Troubleshooting Terminal Commands */}
+      {!isConnected && (
+        <div className="bg-white rounded-2xl border border-neutral-200 p-6 space-y-4 shadow-xs">
+          <div className="flex items-center gap-2 text-base font-bold text-neutral-900">
+            <Terminal size={20} className="text-amber-500" />
+            <span>Hogyan indítsd el a MongoDB-t a szervereden?</span>
+          </div>
+          <p className="text-xs sm:text-sm text-neutral-600">
+            A konfigurációdban megadott URI: <code className="font-mono bg-neutral-100 px-1.5 py-0.5 rounded text-neutral-800">mongodb://127.0.0.1:27017/szesztestverek</code>.
+            Futtasd a megfelelő parancsot a szervereden (SSH terminálban), majd kattints fent az <strong>„Újratesztelés”</strong> gombra:
+          </p>
+
+          <div className="space-y-3">
+            <div className="p-3 bg-neutral-950 text-neutral-100 rounded-xl font-mono text-xs flex items-center justify-between gap-3">
+              <div>
+                <span className="text-neutral-500 select-none"># 1. MongoDB szolgáltatás elindítása Linuxon (Ubuntu/Debian):</span>
+                <div className="text-emerald-400 font-bold mt-0.5">sudo systemctl start mongod</div>
+              </div>
+              <button
+                onClick={() => copyToClipboard('sudo systemctl start mongod')}
+                className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-white transition-colors"
+                title="Másolás"
+              >
+                <Copy size={16} />
+              </button>
+            </div>
+
+            <div className="p-3 bg-neutral-950 text-neutral-100 rounded-xl font-mono text-xs flex items-center justify-between gap-3">
+              <div>
+                <span className="text-neutral-500 select-none"># 2. Automatikus indítás beállítása szerver újrainduláskor:</span>
+                <div className="text-emerald-400 font-bold mt-0.5">sudo systemctl enable mongod</div>
+              </div>
+              <button
+                onClick={() => copyToClipboard('sudo systemctl enable mongod')}
+                className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-white transition-colors"
+                title="Másolás"
+              >
+                <Copy size={16} />
+              </button>
+            </div>
+
+            <div className="p-3 bg-neutral-950 text-neutral-100 rounded-xl font-mono text-xs flex items-center justify-between gap-3">
+              <div>
+                <span className="text-neutral-500 select-none"># 3. Vagy ha Dockerben futtatod a MongoDB-t:</span>
+                <div className="text-emerald-400 font-bold mt-0.5">docker run -d -p 27017:27017 --name szesztestverek-mongo mongo:latest</div>
+              </div>
+              <button
+                onClick={() => copyToClipboard('docker run -d -p 27017:27017 --name szesztestverek-mongo mongo:latest')}
+                className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-white transition-colors"
+                title="Másolás"
+              >
+                <Copy size={16} />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sync Status & Collections Breakdown */}
+      <div className="bg-white rounded-2xl border border-neutral-200 overflow-hidden shadow-xs">
+        <div className="p-5 border-b border-neutral-200 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="font-bold text-base text-neutral-900 flex items-center gap-2">
+              <Server size={18} className="text-neutral-700" />
+              Adatbázis Kollekciók &amp; Szinkronizáció
+            </h3>
+            <p className="text-xs text-neutral-500 mt-0.5">
+              Hány elem található a MongoDB adatbázisban és hány a memóriában.
+            </p>
+          </div>
+          {isConnected && (
+            <div className="flex gap-2">
+              <button
+                onClick={handlePushAll}
+                disabled={actionLoading}
+                className="px-3.5 py-1.5 rounded-lg border border-neutral-300 hover:bg-neutral-100 text-xs font-semibold text-neutral-800 inline-flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                title="Memóriában lévő adatok beírása a MongoDB-be"
+              >
+                <UploadCloud size={14} /> Memória &rarr; MongoDB mentés
+              </button>
+              <button
+                onClick={handlePullAll}
+                disabled={actionLoading}
+                className="px-3.5 py-1.5 rounded-lg border border-neutral-300 hover:bg-neutral-100 text-xs font-semibold text-neutral-800 inline-flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                title="Adatok újratöltése a MongoDB-ből"
+              >
+                <DownloadCloud size={14} /> MongoDB &rarr; Memória frissítés
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-neutral-50 border-b border-neutral-200 text-neutral-500 text-xs uppercase font-semibold">
+              <tr>
+                <th className="py-3 px-5 text-left">Kollekció neve</th>
+                <th className="py-3 px-5 text-center">MongoDB rekordok</th>
+                <th className="py-3 px-5 text-center">Memóriában</th>
+                <th className="py-3 px-5 text-right">Állapot</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-neutral-100">
+              {collections.map((col) => {
+                const inSync = isConnected ? col.mongo === col.memory : false;
+                return (
+                  <tr key={col.key} className="hover:bg-neutral-50/70 transition-colors">
+                    <td className="py-3 px-5 font-semibold text-neutral-900">{col.label}</td>
+                    <td className="py-3 px-5 text-center font-mono font-bold text-neutral-800">
+                      {isConnected ? col.mongo : '—'}
+                    </td>
+                    <td className="py-3 px-5 text-center font-mono text-neutral-600">
+                      {col.memory}
+                    </td>
+                    <td className="py-3 px-5 text-right">
+                      {isConnected ? (
+                        inSync ? (
+                          <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+                            <CheckCircle2 size={13} /> Szinkronban
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200">
+                            Különbözet ({col.memory - col.mongo})
+                          </span>
+                        )
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-xs text-neutral-500 bg-neutral-100 px-2 py-0.5 rounded">
+                          Csak memóriában
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Legacy DB Collection Migrator */}
+      <div className="bg-white rounded-2xl border border-neutral-200 p-6 space-y-4 shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-neutral-100 pb-3">
+          <div>
+            <h3 className="font-bold text-base text-neutral-900 flex items-center gap-2">
+              <FolderSync size={18} className="text-amber-500" />
+              Régi rendszer adatainak átemelése meglévő MongoDB kollekcióból
+            </h3>
+            <p className="text-xs text-neutral-500 mt-0.5">
+              Ha a régi rendszeredből származó adatok már a MongoDB-ben vannak egy korábbi kollekcióban (pl. <code className="bg-neutral-100 px-1 py-0.5 rounded font-mono">products</code>, <code className="bg-neutral-100 px-1 py-0.5 rounded font-mono">termekek</code>, <code className="bg-neutral-100 px-1 py-0.5 rounded font-mono">etlap</code> vagy <code className="bg-neutral-100 px-1 py-0.5 rounded font-mono">rendelesek</code>), innen egy kattintással átmigrálhatod őket!
+            </p>
+          </div>
+          {isConnected && (
+            <button
+              onClick={fetchInspect}
+              className="text-xs font-semibold text-neutral-600 hover:text-neutral-900 inline-flex items-center gap-1 self-start sm:self-auto"
+            >
+              <RefreshCw size={12} /> Kollekciók frissítése
+            </button>
+          )}
+        </div>
+
+        {isConnected ? (
+          inspectData?.collections?.length ? (
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-2 text-xs">
+                <span className="text-neutral-500 py-1">Észlelt kollekciók a(z) <strong>{inspectData.currentDatabase}</strong> adatbázisban:</span>
+                {inspectData.collections.map((c) => (
+                  <button
+                    key={c.name}
+                    onClick={() => setSelectedSourceCol(c.name)}
+                    className={`px-2.5 py-1 rounded-lg border font-mono transition-all ${
+                      selectedSourceCol === c.name
+                        ? 'bg-neutral-900 text-white border-neutral-900 shadow-xs'
+                        : 'bg-neutral-50 text-neutral-700 border-neutral-200 hover:bg-neutral-100'
+                    }`}
+                  >
+                    {c.name} <span className="text-[10px] opacity-75 font-sans">({c.count} db)</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+                <div>
+                  <label className="block text-xs font-bold text-neutral-700 mb-1">Forrás kollekció:</label>
+                  <select
+                    value={selectedSourceCol}
+                    onChange={(e) => setSelectedSourceCol(e.target.value)}
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-xl text-xs sm:text-sm bg-white focus:outline-none focus:ring-2 focus:ring-neutral-900"
+                  >
+                    <option value="">-- Válassz kollekciót --</option>
+                    {inspectData.collections.map((c) => (
+                      <option key={c.name} value={c.name}>
+                        {c.name} ({c.count} rekord)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-neutral-700 mb-1">Cél modul:</label>
+                  <select
+                    value={selectedTargetType}
+                    onChange={(e) => setSelectedTargetType(e.target.value)}
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-xl text-xs sm:text-sm bg-white focus:outline-none focus:ring-2 focus:ring-neutral-900"
+                  >
+                    <option value="menu">Étlap termékek (Menu)</option>
+                    <option value="customers">Vevők (Customers)</option>
+                    <option value="inventory">Raktárkészlet (Inventory)</option>
+                    <option value="couriers">Futárok (Couriers)</option>
+                    <option value="zones">Szállítási zónák (Zones)</option>
+                  </select>
+                </div>
+
+                <div className="flex flex-col justify-end">
+                  <button
+                    onClick={handleMigrate}
+                    disabled={actionLoading || !selectedSourceCol}
+                    className="w-full py-2 px-4 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs sm:text-sm font-bold shadow-xs inline-flex items-center justify-center gap-2 disabled:opacity-50 transition-all"
+                  >
+                    <FolderSync size={15} />
+                    Adatok átemelése
+                  </button>
+                </div>
+              </div>
+
+              <label className="inline-flex items-center gap-2 text-xs text-neutral-600 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={migrateOverwrite}
+                  onChange={(e) => setMigrateOverwrite(e.target.checked)}
+                  className="rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
+                />
+                <span>Jelenlegi adatok törlése a cél modulból és teljes felülírás a régivel (ajánlott, ha le akarod cserélni a mintákat)</span>
+              </label>
+            </div>
+          ) : (
+            <p className="text-xs text-neutral-500 italic">
+              Nincsenek még kollekciók a csatlakoztatott adatbázisban.
+            </p>
+          )
+        ) : (
+          <p className="text-xs text-rose-600">
+            A kollekciók listázásához és átemeléséhez először csatlakoznia kell a MongoDB-nek (lásd feljebb).
+          </p>
+        )}
+      </div>
+
+      {/* JSON / CSV File or Text Importer */}
+      <div className="bg-white rounded-2xl border border-neutral-200 p-6 space-y-4 shadow-xs">
+        <div className="border-b border-neutral-100 pb-3">
+          <h3 className="font-bold text-base text-neutral-900 flex items-center gap-2">
+            <Upload size={18} className="text-emerald-600" />
+            Fájl importálása (JSON vagy CSV fájl a régi rendszerből)
+          </h3>
+          <p className="text-xs text-neutral-500 mt-0.5">
+            Ha a régi rendszeredből exportáltál egy JSON vagy CSV fájlt, töltsd fel ide vagy másold be a tartalmát! A rendszer automatikusan betölti és elmenti. <strong>Nem kell semmit kézzel újra felvinned!</strong>
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-bold text-neutral-700 mb-1">Melyik modulba importálsz?</label>
+            <select
+              value={importTarget}
+              onChange={(e) => setImportTarget(e.target.value)}
+              className="w-full px-3 py-2 border border-neutral-300 rounded-xl text-xs sm:text-sm bg-white focus:outline-none focus:ring-2 focus:ring-neutral-900"
+            >
+              <option value="menu">Étlap termékek (Név, ár, kategória, leírás)</option>
+              <option value="customers">Vevők (Név, telefonszám, cím)</option>
+              <option value="inventory">Raktárkészlet (Alapanyagok, mennyiség, mértékegység)</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-neutral-700 mb-1">Fájl kiválasztása (.json vagy .csv):</label>
+            <input
+              type="file"
+              accept=".json,.csv,application/json,text/csv"
+              onChange={handleFileUpload}
+              className="w-full text-xs text-neutral-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-neutral-100 file:text-neutral-700 hover:file:bg-neutral-200 cursor-pointer"
+            />
+          </div>
+        </div>
+
+        <div>
+          <div className="flex justify-between items-center mb-1">
+            <label className="text-xs font-bold text-neutral-700">
+              Vagy illeszd be közvetlenül a JSON vagy CSV szöveget:
+            </label>
+            {fileParsedCount !== null && (
+              <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">
+                ✓ {fileParsedCount} elem felismerve
+              </span>
+            )}
+          </div>
+          <textarea
+            rows={4}
+            value={jsonInput}
+            onChange={(e) => {
+              setJsonInput(e.target.value);
+              try {
+                const p = JSON.parse(e.target.value);
+                setFileParsedCount(Array.isArray(p) ? p.length : 1);
+              } catch {
+                setFileParsedCount(null);
+              }
+            }}
+            placeholder='Példa: [{"name": "Sajtos Pizza", "price": 2690, "category": "Pizzák"}, ...]'
+            className="w-full p-3 font-mono text-xs border border-neutral-300 rounded-xl bg-neutral-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-neutral-900"
+          />
+        </div>
+
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+          <label className="inline-flex items-center gap-2 text-xs text-neutral-600 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={importOverwrite}
+              onChange={(e) => setImportOverwrite(e.target.checked)}
+              className="rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
+            />
+            <span>Mintaadatok törlése és teljes lecserélése a feltöltött adatokra</span>
+          </label>
+
+          <button
+            onClick={handleDirectImport}
+            disabled={actionLoading || !jsonInput.trim()}
+            className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-bold shadow-xs inline-flex items-center justify-center gap-2 disabled:opacity-50 transition-all shrink-0"
+          >
+            <Upload size={16} />
+            Importálás és Mentés
+          </button>
+        </div>
+      </div>
+
+      {/* Custom Connection String Tester */}
+      <div className="bg-white rounded-2xl border border-neutral-200 p-6 space-y-4 shadow-xs">
+        <h3 className="font-bold text-base text-neutral-900">
+          MongoDB Kapcsolati URL tesztelése és módosítása
+        </h3>
+        <p className="text-xs text-neutral-500">
+          Ha felhős MongoDB-t (pl. MongoDB Atlas) vagy más porton futó adatbázist használsz, itt azonnal letesztelheted:
+        </p>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <input
+            type="text"
+            value={customUri}
+            onChange={(e) => setCustomUri(e.target.value)}
+            placeholder="mongodb://127.0.0.1:27017/szesztestverek"
+            className="flex-1 px-4 py-2.5 border border-neutral-300 rounded-xl font-mono text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900"
+          />
+          <button
+            onClick={() => handleReconnect(customUri)}
+            disabled={actionLoading || !customUri}
+            className="px-6 py-2.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-white text-xs sm:text-sm font-bold shadow-xs inline-flex items-center justify-center gap-2 disabled:opacity-50 transition-all shrink-0"
+          >
+            <Check size={16} />
+            Csatlakozás &amp; Mentés
           </button>
         </div>
       </div>

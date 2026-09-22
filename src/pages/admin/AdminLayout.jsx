@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutList, PlusCircle, Bike, Users, UtensilsCrossed, Boxes, BarChart3, Settings as SettingsIcon, Search, LogOut, Volume2, VolumeX, Bell, Menu, X, Clock, Power, ShieldAlert } from 'lucide-react';
+import { LayoutList, PlusCircle, Bike, Users, UtensilsCrossed, Boxes, BarChart3, Settings as SettingsIcon, Search, LogOut, Volume2, VolumeX, Bell, Menu, X, Clock, Power, ShieldAlert, Database } from 'lucide-react';
 import { LOGO_URL } from '../../mock/mockData';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { toast } from 'sonner';
+import axios from 'axios';
+
+const API = (typeof process !== 'undefined' && process.env?.REACT_APP_BACKEND_URL ? process.env.REACT_APP_BACKEND_URL : '') + '/api';
 
 const NAV = [
   { to: '/admin/rendelesek', label: 'Rendelések', icon: LayoutList },
@@ -38,8 +41,21 @@ const AdminLayout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [statusModalOpen, setStatusModalOpen] = useState(false);
   const [reasonInput, setReasonInput] = useState(restaurantStatus?.manualCloseReason || '');
+  const [dbStatus, setDbStatus] = useState(null);
 
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 30000); return () => clearInterval(t); }, []);
+
+  useEffect(() => {
+    const fetchDb = async () => {
+      try {
+        const res = await axios.get(`${API}/system/db-status`);
+        setDbStatus(res.data);
+      } catch (e) {}
+    };
+    fetchDb();
+    const interval = setInterval(fetchDb, 15000);
+    return () => clearInterval(interval);
+  }, []);
 
   const dateStr = now.toLocaleDateString('hu-HU', { year: 'numeric', month: '2-digit', day: '2-digit' });
   const timeStr = now.toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' });
@@ -109,6 +125,17 @@ const AdminLayout = () => {
           <Bell size={12} className={soundMuted ? 'text-neutral-500' : 'animate-bounce text-amber-400'} />
           <span>Hangjelzés: {soundMuted ? 'Némítva' : 'Aktív'}</span>
         </div>
+        <button
+          onClick={() => { setSidebarOpen(false); nav('/admin/beallitasok?tab=database'); }}
+          className="w-full flex items-center justify-between text-[11px] text-neutral-300 hover:text-white transition-colors pt-1 border-t border-neutral-800/80"
+          title="Ugrás a MongoDB beállításokhoz"
+        >
+          <span className="flex items-center gap-1.5">
+            <span className={`h-2 w-2 rounded-full ${dbStatus?.isMongoConnected ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
+            <span>DB: {dbStatus?.isMongoConnected ? 'MongoDB aktív' : 'Memória mód'}</span>
+          </span>
+          <span className="text-[10px] text-amber-400 underline">Kezelés</span>
+        </button>
         <div className="text-[10px] text-neutral-500">v1.2.0 • Szuhogy</div>
       </div>
     </>
@@ -182,6 +209,20 @@ const AdminLayout = () => {
               >
                 <Clock size={12} className={restaurantStatus?.alwaysOpen24 ? 'text-amber-600' : 'text-neutral-500'} />
                 <span>{restaurantStatus?.alwaysOpen24 ? '0-24 AKTÍV' : '0-24 KIKAPCSOLVA'}</span>
+              </button>
+
+              {/* DB Status Indicator Button */}
+              <button
+                onClick={() => nav('/admin/beallitasok?tab=database')}
+                className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all border shadow-xs ${
+                  dbStatus?.isMongoConnected
+                    ? 'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100'
+                    : 'bg-rose-50 border-rose-300 text-rose-800 hover:bg-rose-100'
+                }`}
+                title="Kattints az Adatbázis & MongoDB beállítások és diagnosztika megnyitásához"
+              >
+                <Database size={13} className={dbStatus?.isMongoConnected ? 'text-emerald-600' : 'text-rose-600'} />
+                <span>{dbStatus?.isMongoConnected ? 'MongoDB' : 'Memória (DB offline)'}</span>
               </button>
             </div>
 

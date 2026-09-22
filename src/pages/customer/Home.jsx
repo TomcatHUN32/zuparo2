@@ -12,11 +12,13 @@ const Home = () => {
   const { menu, restaurantStatus } = useData();
   const { add } = useCart();
   const featured = [
-    menu.find((m) => m.name === 'Margherita'),
-    menu.find((m) => m.name === 'ZUPARO Burger menü'),
-    menu.find((m) => m.name === 'Gyros tál'),
-    menu.find((m) => m.name === 'Csirkés tortilla'),
+    menu.find((m) => m.name?.includes('Sertéspörkölt')),
+    menu.find((m) => m.name?.includes('Csirkepaprikás')),
+    menu.find((m) => m.name?.includes('Rántott')),
+    menu.find((m) => m.name?.includes('pizza') || m.name?.includes('Pizza')),
   ].filter(Boolean);
+
+  const displayFeatured = featured.length >= 2 ? featured : menu.slice(0, 4);
 
   return (
     <div>
@@ -79,7 +81,7 @@ const Home = () => {
           <Link to="/etlap" className="text-sm text-[#d4af37] hover:underline inline-flex items-center gap-1 font-semibold">Összes étel megtekintése <ArrowRight size={14} /></Link>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
-          {featured.map((m, i) => (
+          {displayFeatured.map((m, i) => (
             <div key={m.id} className="relative rounded-2xl border border-neutral-800 bg-neutral-900 overflow-hidden card-hover hover:border-[#d4af37] flex flex-col justify-between">
               <div>
                 <div className="h-44 bg-gradient-to-br from-neutral-800 to-neutral-950 flex items-center justify-center relative overflow-hidden">
