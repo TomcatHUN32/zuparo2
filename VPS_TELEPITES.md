@@ -74,6 +74,7 @@ Telepítsd a függőségeket és futtasd le a buildet:
 
 ```bash
 cd /var/www/zuparo
+# Ha bármilyen régebbi npm peer dependency ütközést jelezne a szerveren: npm install --legacy-peer-deps
 npm install
 npm run build
 ```
