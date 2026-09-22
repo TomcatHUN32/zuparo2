@@ -30,10 +30,10 @@ export interface IMenuItem extends Document {
   name: string;
   description: string;
   price: number;
-  priceFoodora: number;
-  priceFalatozz: number;
+  priceFoodora?: number;
+  priceFalatozz?: number;
   available: boolean;
-  recipe: Array<{ inventoryId: string; qty: number; unit?: string }>;
+  recipe?: Array<{ inventoryId: string; qty: number; unit?: string }>;
   image?: string;
   packagingFee?: number;
   drsFeeEnabled?: boolean;
@@ -45,8 +45,8 @@ const MenuItemSchema = new Schema<IMenuItem>({
   name: { type: String, required: true },
   description: { type: String, default: '' },
   price: { type: Number, required: true },
-  priceFoodora: { type: Number, required: true },
-  priceFalatozz: { type: Number, required: true },
+  priceFoodora: { type: Number, default: 0 },
+  priceFalatozz: { type: Number, default: 0 },
   available: { type: Boolean, default: true },
   recipe: [{ inventoryId: String, qty: Number, unit: String }],
   image: { type: String, default: '' },
@@ -62,13 +62,15 @@ export interface IZone extends Document {
   zip: string;
   city: string;
   fee: number;
+  minOrder?: number;
 }
 
 const ZoneSchema = new Schema<IZone>({
   id: { type: String, required: true, unique: true },
-  zip: { type: String, required: true },
+  zip: { type: String, default: '' },
   city: { type: String, required: true },
   fee: { type: Number, required: true },
+  minOrder: { type: Number, default: 0 },
 });
 
 export const ZoneModel = mongoose.models.Zone || mongoose.model<IZone>('Zone', ZoneSchema);
@@ -138,7 +140,7 @@ export const InventoryModel = mongoose.models.Inventory || mongoose.model<IInven
 export interface ICoupon extends Document {
   id: string;
   code: string;
-  kind: 'percent' | 'amount';
+  kind: 'percent' | 'amount' | string;
   value: number;
   active: boolean;
 }
@@ -146,7 +148,7 @@ export interface ICoupon extends Document {
 const CouponSchema = new Schema<ICoupon>({
   id: { type: String, required: true, unique: true },
   code: { type: String, required: true, unique: true, uppercase: true, index: true },
-  kind: { type: String, enum: ['percent', 'amount'], default: 'percent' },
+  kind: { type: String, default: 'percent' },
   value: { type: Number, required: true },
   active: { type: Boolean, default: true },
 });
@@ -162,9 +164,9 @@ export interface IOrder extends Document {
   city: string;
   street: string;
   floor: string;
-  type: 'delivery' | 'pickup' | 'dinein';
-  payment: 'cash' | 'card' | 'online';
-  channel: 'house' | 'foodora' | 'falatozz' | 'online';
+  type: 'delivery' | 'pickup' | 'dinein' | 'takeaway' | string;
+  payment: 'cash' | 'card' | 'online' | 'hitel' | string;
+  channel: 'house' | 'foodora' | 'falatozz' | 'online' | string;
   items: Array<{ id: string; name: string; price: number; qty: number; note?: string }>;
   subtotal: number;
   deliveryFee: number;
@@ -175,11 +177,13 @@ export interface IOrder extends Document {
   couponCode?: string;
   total: number;
   note?: string;
-  status: 'new' | 'in_progress' | 'courier' | 'delivered' | 'cancelled';
+  status: 'new' | 'in_progress' | 'courier' | 'delivered' | 'cancelled' | string;
   courierId?: string | null;
   createdAt: string;
   userId?: string | null;
   isOnlineOrder?: boolean;
+  isCredit?: boolean;
+  creditSettled?: boolean;
   source?: string;
   cancelledAt?: string;
   cancelReason?: string;
@@ -193,9 +197,9 @@ const OrderSchema = new Schema<IOrder>({
   city: { type: String, default: '' },
   street: { type: String, default: '' },
   floor: { type: String, default: '' },
-  type: { type: String, enum: ['delivery', 'pickup', 'dinein'], default: 'delivery' },
-  payment: { type: String, enum: ['cash', 'card', 'online'], default: 'cash' },
-  channel: { type: String, enum: ['house', 'foodora', 'falatozz', 'online'], default: 'house' },
+  type: { type: String, default: 'delivery' },
+  payment: { type: String, default: 'cash' },
+  channel: { type: String, default: 'house' },
   items: [
     {
       id: String,
@@ -216,7 +220,6 @@ const OrderSchema = new Schema<IOrder>({
   note: { type: String, default: '' },
   status: {
     type: String,
-    enum: ['new', 'in_progress', 'courier', 'delivered', 'cancelled'],
     default: 'new',
     index: true,
   },
@@ -224,6 +227,8 @@ const OrderSchema = new Schema<IOrder>({
   createdAt: { type: String, default: () => new Date().toISOString(), index: true },
   userId: { type: String, default: null },
   isOnlineOrder: { type: Boolean, default: false },
+  isCredit: { type: Boolean, default: false },
+  creditSettled: { type: Boolean, default: false },
   source: { type: String, default: 'pos' },
   cancelledAt: { type: String, default: null },
   cancelReason: { type: String, default: '' },
@@ -292,3 +297,87 @@ const RestaurantStatusSchema = new Schema<IRestaurantStatus>({
 export const RestaurantStatusModel =
   mongoose.models.RestaurantStatus ||
   mongoose.model<IRestaurantStatus>('RestaurantStatus', RestaurantStatusSchema);
+
+// Review Schema
+export interface IReview extends Document {
+  id: string;
+  orderId?: string;
+  userId?: string;
+  userName: string;
+  rating: number;
+  comment: string;
+  createdAt: string;
+}
+
+const ReviewSchema = new Schema<IReview>({
+  id: { type: String, required: true, unique: true },
+  orderId: { type: String, default: null },
+  userId: { type: String, default: null },
+  userName: { type: String, default: 'Vendég' },
+  rating: { type: Number, default: 5 },
+  comment: { type: String, default: '' },
+  createdAt: { type: String, default: () => new Date().toISOString() },
+});
+
+export const ReviewModel = mongoose.models.Review || mongoose.model<IReview>('Review', ReviewSchema);
+
+// Topping / Extra Schema
+export interface ITopping extends Document {
+  id: string;
+  name: string;
+  price: number;
+  category?: string;
+  available: boolean;
+}
+
+const ToppingSchema = new Schema<ITopping>({
+  id: { type: String, required: true, unique: true },
+  name: { type: String, required: true },
+  price: { type: Number, default: 0 },
+  category: { type: String, default: 'Feltétek' },
+  available: { type: Boolean, default: true },
+});
+
+export const ToppingModel = mongoose.models.Topping || mongoose.model<ITopping>('Topping', ToppingSchema);
+
+// Favorite Schema
+export interface IFavorite extends Document {
+  id: string;
+  userId: string;
+  productId: string;
+  createdAt: string;
+}
+
+const FavoriteSchema = new Schema<IFavorite>({
+  id: { type: String, required: true, unique: true },
+  userId: { type: String, required: true, index: true },
+  productId: { type: String, required: true },
+  createdAt: { type: String, default: () => new Date().toISOString() },
+});
+
+export const FavoriteModel = mongoose.models.Favorite || mongoose.model<IFavorite>('Favorite', FavoriteSchema);
+
+// City / Legacy City Schema (maps directly to 'cities' collection in MongoDB for backward compatibility)
+export interface ICity extends Document {
+  id: string;
+  name: string;
+  zip?: string;
+  deliveryFee: number;
+  minOrder?: number;
+  active?: boolean;
+}
+
+const CitySchema = new Schema<ICity>(
+  {
+    id: { type: String, required: true, unique: true },
+    name: { type: String, required: true },
+    zip: { type: String, default: '' },
+    deliveryFee: { type: Number, default: 0 },
+    minOrder: { type: Number, default: 0 },
+    active: { type: Boolean, default: true },
+  },
+  { collection: 'cities' }
+);
+
+export const CityModel = mongoose.models.City || mongoose.model<ICity>('City', CitySchema);
+

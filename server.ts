@@ -19,14 +19,35 @@ import {
   OrderModel,
   RestaurantStatusModel,
   DayCloseModel,
-} from './serverModels.ts';
+} from './serverModels';
+
+import cors from 'cors';
+import authRoutes from './server/routes/auth';
+import productRoutes from './server/routes/products';
+import reviewRoutes from './server/routes/reviews';
+import toppingRoutes from './server/routes/toppings';
+import cityRoutes from './server/routes/cities';
+import favoriteRoutes from './server/routes/favorites';
+import userRoutes from './server/routes/user';
+import stripeRoutes from './server/routes/stripe';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'szesztestverek_jwt_secret_production_key_2026';
 const JWT_EXPIRES_IN = '7d';
 
+app.use(cors());
 app.use(express.json());
+
+// Mount modular routes for backwards and forwards compatibility
+app.use('/api/products', productRoutes);
+app.use('/api/cities', cityRoutes);
+app.use('/api/reviews', reviewRoutes);
+app.use('/api/toppings', toppingRoutes);
+app.use('/api/favorites', favoriteRoutes);
+app.use('/api/user', userRoutes);
+app.use('/api/stripe', stripeRoutes);
+
 
 // In-memory data store
 interface User {
