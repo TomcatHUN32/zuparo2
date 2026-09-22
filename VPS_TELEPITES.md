@@ -92,22 +92,12 @@ nano /var/www/zuparo/.env
 Illeszd be az alábbi tartalmat (állítsd be a saját titkos kulcsodat és domain címedet):
 
 ```env
-# Port, amin a Node szerver fut
+# Database & Server settings
 PORT=3000
-
-# Környezet
 NODE_ENV=production
-
-# Időzóna (Magyarországi éjfél és pontos blokk időbélyegek)
 TZ=Europe/Budapest
-
-# Helyi MongoDB adatbázis kapcsolat
-MONGODB_URI=mongodb://127.0.0.1:27017/zuparo
-
-# Biztonsági JWT titkos kulcs (ezt írd át bármilyen egyedi hosszú karaktersorra!)
-JWT_SECRET=zuparo_super_secure_production_secret_key_987654321
-
-# Webshop domain címe
+MONGO_URI=mongodb://127.0.0.1:27017/szesztestverek
+JWT_SECRET=szesztestverek_jwt_secret_production_key_2026
 APP_URL=https://rendeles.zuparo.hu
 ```
 Mentés: `Ctrl + O`, majd `Enter`, kilépés: `Ctrl + X`.

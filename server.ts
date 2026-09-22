@@ -1,3 +1,6 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
@@ -19,8 +22,8 @@ import {
 } from './serverModels.ts';
 
 const app = express();
-const PORT = 3000;
-const JWT_SECRET = process.env.JWT_SECRET || 'zuparo-secret-key-change-me';
+const PORT = Number(process.env.PORT) || 3000;
+const JWT_SECRET = process.env.JWT_SECRET || 'szesztestverek_jwt_secret_production_key_2026';
 const JWT_EXPIRES_IN = '7d';
 
 app.use(express.json());
@@ -205,7 +208,7 @@ let restaurantStatus: RestaurantStatus = {
 };
 
 // ================= MONGODB INTEGRATION & SYNC =================
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/zuparo';
+const MONGODB_URI = process.env.MONGO_URI || process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/szesztestverek';
 let isMongoConnected = false;
 
 // Timezone helper for Budapest / Hungary (midnight rollover)
@@ -228,18 +231,18 @@ function getOrderBudapestDate(createdAt: string): string {
 }
 
 async function initMongoDatabase() {
-  const uri = process.env.MONGODB_URI;
+  const uri = process.env.MONGO_URI || process.env.MONGODB_URI;
   if (!uri && process.env.NODE_ENV !== 'production') {
-    console.log('ℹ️ MONGODB_URI not configured in development environment. Using in-memory database with full local persistence.');
+    console.log('ℹ️ MONGO_URI not configured in development environment. Using in-memory database with full local persistence.');
     return;
   }
   try {
     console.log(`[MongoDB] Connecting to MongoDB instance at ${MONGODB_URI}...`);
     await mongoose.connect(MONGODB_URI, {
-      serverSelectionTimeoutMS: 3000,
+      serverSelectionTimeoutMS: 5000,
     });
     isMongoConnected = true;
-    console.log('✅ [MongoDB] Connected to MongoDB successfully!');
+    console.log(`✅ [MongoDB] Connected to MongoDB database (${MONGODB_URI.split('/').pop()?.split('?')[0] || 'szesztestverek'}) successfully!`);
     await syncMongoData();
   } catch (err: any) {
     console.warn(`⚠️ [MongoDB] Connection warning (${err?.message || 'timeout'}). Continuing with in-memory storage fallback.`);
