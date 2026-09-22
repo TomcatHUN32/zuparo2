@@ -1,6 +1,7 @@
 // Mock data for ZUPARO ordering platform
 
-export const LOGO_URL = 'https://customer-assets-v7afamib.emergentagent.net/job_order-app-65/artifacts/zepx2s3q_cbb74501-e7c5-4d95-89c4-9894f9fa66a5-Picsart-BackgroundRemover.png';
+// Official ZUPARO logo asset
+export const LOGO_URL = '/logo.png';
 
 export const CATEGORIES = [
   { id: 'pizzak', name: 'Pizzák', icon: 'Pizza' },

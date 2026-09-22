@@ -93,7 +93,7 @@ const MenuPage = () => {
               <div className="gold-text-gradient font-extrabold text-lg">{formatFt(m.price)}</div>
               <button
                 onClick={() => {
-                  add({ id: m.id, name: m.name, price: m.price });
+                  add(m);
                   toast.success(`${m.name} kosárba téve`);
                 }}
                 className="h-9 px-4 rounded-full bg-rose-500 hover:bg-rose-600 text-white text-sm font-semibold inline-flex items-center gap-1.5 shadow-md transition-all active:scale-95"

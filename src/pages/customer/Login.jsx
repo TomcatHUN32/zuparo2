@@ -48,11 +48,6 @@ const Login = () => {
         <div className="mt-4 text-center text-sm text-neutral-400">
           Még nincs fiókod? <Link to="/regisztracio" className="text-[#d4af37] hover:underline">Regisztráció</Link>
         </div>
-        <div className="mt-6 rounded-lg border border-neutral-800 bg-neutral-950 p-3 text-xs text-neutral-500">
-          <div className="font-semibold text-neutral-300">Admin próbafiók</div>
-          <div>Email: <span className="text-neutral-200">admin@zuparo.hu</span></div>
-          <div>Jelszó: <span className="text-neutral-200">admin123</span></div>
-        </div>
       </div>
     </div>
   );

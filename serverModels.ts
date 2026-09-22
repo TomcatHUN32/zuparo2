@@ -35,6 +35,8 @@ export interface IMenuItem extends Document {
   available: boolean;
   recipe: Array<{ inventoryId: string; qty: number; unit?: string }>;
   image?: string;
+  packagingFee?: number;
+  drsFeeEnabled?: boolean;
 }
 
 const MenuItemSchema = new Schema<IMenuItem>({
@@ -48,6 +50,8 @@ const MenuItemSchema = new Schema<IMenuItem>({
   available: { type: Boolean, default: true },
   recipe: [{ inventoryId: String, qty: Number, unit: String }],
   image: { type: String, default: '' },
+  packagingFee: { type: Number, default: 0 },
+  drsFeeEnabled: { type: Boolean, default: false },
 });
 
 export const MenuItemModel = mongoose.models.MenuItem || mongoose.model<IMenuItem>('MenuItem', MenuItemSchema);
@@ -164,6 +168,8 @@ export interface IOrder extends Document {
   items: Array<{ id: string; name: string; price: number; qty: number; note?: string }>;
   subtotal: number;
   deliveryFee: number;
+  packagingFee?: number;
+  drsFee?: number;
   discountPct: number;
   discountAmount: number;
   couponCode?: string;
@@ -201,6 +207,8 @@ const OrderSchema = new Schema<IOrder>({
   ],
   subtotal: { type: Number, default: 0 },
   deliveryFee: { type: Number, default: 0 },
+  packagingFee: { type: Number, default: 0 },
+  drsFee: { type: Number, default: 0 },
   discountPct: { type: Number, default: 0 },
   discountAmount: { type: Number, default: 0 },
   couponCode: { type: String, default: '' },
@@ -261,6 +269,10 @@ export interface IRestaurantStatus extends Document {
   allowOrder247: boolean;
   customNotice: string;
   manualCloseReason?: string;
+  packagingFeeEnabled: boolean;
+  packagingFee: number;
+  drsFeeEnabled: boolean;
+  drsFee: number;
   lastChangedAt: string;
 }
 
@@ -270,6 +282,10 @@ const RestaurantStatusSchema = new Schema<IRestaurantStatus>({
   allowOrder247: { type: Boolean, default: true },
   customNotice: { type: String, default: '0-24 órában fogadjuk a rendeléseket! Kiszállítás és átvétel zavartalan.' },
   manualCloseReason: { type: String, default: '' },
+  packagingFeeEnabled: { type: Boolean, default: true },
+  packagingFee: { type: Number, default: 200 },
+  drsFeeEnabled: { type: Boolean, default: true },
+  drsFee: { type: Number, default: 50 },
   lastChangedAt: { type: String, default: () => new Date().toISOString() },
 });
 

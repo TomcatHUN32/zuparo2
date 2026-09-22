@@ -11,7 +11,7 @@ export const CartProvider = ({ children }) => {
   const add = (item) => setCart((prev) => {
     const idx = prev.findIndex((c) => c.id === item.id);
     if (idx >= 0) { const copy = [...prev]; copy[idx].qty += 1; return copy; }
-    return [...prev, { id: item.id, name: item.name, price: item.price, qty: 1 }];
+    return [...prev, { ...item, qty: 1 }];
   });
   const setQty = (id, qty) => setCart((prev) => prev.map((c) => c.id === id ? { ...c, qty: Math.max(1, qty) } : c));
   const remove = (id) => setCart((prev) => prev.filter((c) => c.id !== id));

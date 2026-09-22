@@ -11,7 +11,7 @@ const MIN_ORDER = 2500;
 
 const Checkout = () => {
   const { cart, subtotal, setQty, remove, clear } = useCart();
-  const { zones, getZoneFee, addOrder, validateCoupon } = useData();
+  const { zones, getZoneFee, addOrder, validateCoupon, restaurantStatus } = useData();
   const { user } = useAuth();
   const nav = useNavigate();
 
@@ -23,9 +23,34 @@ const Checkout = () => {
   const [busy, setBusy] = useState(false);
 
   const deliveryFee = getZoneFee(addr.zip);
+
+  // Packaging fee calculation: checks item-level packagingFee first, otherwise falls back to global restaurant packagingFee
+  const hasItemPackaging = cart.some((item) => item.packagingFee !== undefined && item.packagingFee !== null);
+  const packagingFee = (restaurantStatus?.packagingFeeEnabled !== false && cart.length > 0)
+    ? (hasItemPackaging
+        ? cart.reduce((sum, item) => sum + (Number(item.packagingFee) || 0) * (item.qty || 1), 0)
+        : (Number(restaurantStatus?.packagingFee) || 200))
+    : 0;
+
+  // DRS fee (50 Ft) calculation: checks item-level drsFeeEnabled first, otherwise detects by category/drink keywords
+  const drsItemCount = cart.reduce((sum, item) => {
+    let hasDrs = false;
+    if (item.drsFeeEnabled !== undefined && item.drsFeeEnabled !== null) {
+      hasDrs = Boolean(item.drsFeeEnabled);
+    } else {
+      hasDrs = item.category === 'italok' ||
+        /\b(0[,.]\d+l|doboz|palack|cola|fanta|tea|víz|sör|üdítő|pepsi|sprite|red bull|hell)\b/i.test(item.name || '');
+    }
+    return sum + (hasDrs ? item.qty : 0);
+  }, 0);
+
+  const drsFee = (restaurantStatus?.drsFeeEnabled !== false && drsItemCount > 0)
+    ? drsItemCount * (Number(restaurantStatus?.drsFee) || 50)
+    : 0;
+
   let discountAmount = 0;
   if (couponApplied) discountAmount = couponApplied.kind === 'percent' ? Math.round(subtotal * couponApplied.value / 100) : Math.min(subtotal, couponApplied.value);
-  const total = Math.max(0, subtotal - discountAmount + deliveryFee);
+  const total = Math.max(0, subtotal - discountAmount + deliveryFee + packagingFee + drsFee);
   const belowMin = subtotal < MIN_ORDER;
 
   const applyCoupon = async () => {
@@ -40,11 +65,13 @@ const Checkout = () => {
     setBusy(true);
     try {
       const o = await addOrder({
-        customerName: user.name, phone,
+        customerName: user?.name || 'Vendég', phone,
         zip: addr.zip, city: addr.city, street: addr.street, floor: addr.floor,
         type: 'delivery', payment, channel: 'house',
         items: cart.map((c) => ({ ...c, note: '' })),
         subtotal, deliveryFee,
+        packagingFee,
+        drsFee,
         discountPct: couponApplied?.kind === 'percent' ? couponApplied.value : 0,
         discountAmount,
         couponCode: couponApplied?.code || '',
@@ -122,6 +149,8 @@ const Checkout = () => {
             <Row label="Részösszeg" value={formatFt(subtotal)} />
             {discountAmount > 0 && <Row label="Kedvezmény" value={`- ${formatFt(discountAmount)}`} />}
             <Row label="Szállítási díj" value={formatFt(deliveryFee)} />
+            {packagingFee > 0 && <Row label="Csomagolási díj" value={formatFt(packagingFee)} />}
+            {drsFee > 0 && <Row label="DRS visszaváltási díj" value={formatFt(drsFee)} />}
             <div className="flex items-center justify-between pt-2 mt-2 border-t border-neutral-800">
               <div className="text-lg font-extrabold text-white">ÖSSZESEN</div>
               <div className="text-2xl gold-text-gradient font-extrabold">{formatFt(total)}</div>

@@ -19,7 +19,7 @@ const priceForChannel = (m, channel) => {
 };
 
 const NewOrder = () => {
-  const { menu, zones, couriers, customers, addOrder, validateCoupon, getZoneFee } = useData();
+  const { menu, zones, couriers, customers, addOrder, validateCoupon, getZoneFee, restaurantStatus } = useData();
   const [customer, setCustomer] = useState({ name: '', phone: '' });
   const [address, setAddress] = useState({ zip: '3734', city: 'Szuhogy', street: '', floor: '', note: '' });
   const [orderType, setOrderType] = useState('delivery');
@@ -36,6 +36,40 @@ const NewOrder = () => {
   const [showReturning, setShowReturning] = useState(false);
   const [previewOrder, setPreviewOrder] = useState(null);
 
+  // Manual packaging fee override or default from restaurantStatus (or sum of item-level fees if specified)
+  const [packagingFeeInput, setPackagingFeeInput] = useState(null);
+  const hasItemPackaging = cart.some((item) => item.packagingFee !== undefined && item.packagingFee !== null);
+  const defaultPackagingCalc = hasItemPackaging
+    ? cart.reduce((sum, item) => sum + (Number(item.packagingFee) || 0) * (item.qty || 1), 0)
+    : (Number(restaurantStatus?.packagingFee) || 200);
+
+  const packagingFee = packagingFeeInput !== null
+    ? Math.max(0, Number(packagingFeeInput) || 0)
+    : ((restaurantStatus?.packagingFeeEnabled !== false && cart.length > 0)
+        ? defaultPackagingCalc
+        : 0);
+
+  // DRS toggleable on/off and override
+  const [drsEnabledManual, setDrsEnabledManual] = useState(null);
+  const isDrsActive = drsEnabledManual !== null
+    ? drsEnabledManual
+    : (restaurantStatus?.drsFeeEnabled !== false);
+
+  const drsCount = cart.reduce((sum, item) => {
+    let hasDrs = false;
+    if (item.drsFeeEnabled !== undefined && item.drsFeeEnabled !== null) {
+      hasDrs = Boolean(item.drsFeeEnabled);
+    } else {
+      hasDrs = item.category === 'italok' ||
+        /\b(0[,.]\d+l|doboz|palack|cola|fanta|tea|víz|sör|üdítő|pepsi|sprite|red bull|hell)\b/i.test(item.name || '');
+    }
+    return sum + (hasDrs ? item.qty : 0);
+  }, 0);
+
+  const drsFee = (isDrsActive && drsCount > 0)
+    ? drsCount * (Number(restaurantStatus?.drsFee) || 50)
+    : 0;
+
   const filtered = useMemo(() => menu.filter((m) =>
     (activeCat ? m.category === activeCat : true) &&
     (search ? (m.name + ' ' + m.description).toLowerCase().includes(search.toLowerCase()) : true)
@@ -46,7 +80,16 @@ const NewOrder = () => {
     setCart((prev) => {
       const idx = prev.findIndex((c) => c.id === m.id && !c.note);
       if (idx >= 0) { const copy = [...prev]; copy[idx] = { ...copy[idx], qty: copy[idx].qty + 1, price }; return copy; }
-      return [...prev, { id: m.id, name: m.name, price, qty: 1, note: '' }];
+      return [...prev, {
+        id: m.id,
+        name: m.name,
+        category: m.category,
+        price,
+        qty: 1,
+        note: '',
+        packagingFee: m.packagingFee,
+        drsFeeEnabled: m.drsFeeEnabled,
+      }];
     });
   };
   const updateQty = (i, delta) => setCart((prev) => prev.map((c, idx) => idx === i ? { ...c, qty: Math.max(1, c.qty + delta) } : c));
@@ -67,7 +110,7 @@ const NewOrder = () => {
     ? Math.round(subtotal * Math.min(100, manualVal) / 100)
     : Math.min(subtotal, manualVal);
   const discountAmount = Math.min(subtotal, couponDiscount + manualAmount);
-  const total = Math.max(0, subtotal - discountAmount + deliveryFee);
+  const total = Math.max(0, subtotal - discountAmount + deliveryFee + packagingFee + drsFee);
 
   const applyCoupon = async () => {
     if (!coupon.trim()) return;
@@ -87,7 +130,15 @@ const NewOrder = () => {
     setShowReturning(false);
     toast.success(`${c.name} adatai betöltve`);
   };
-  const clearAll = () => { setCart([]); setCouponApplied(null); setCoupon(''); setManualDiscount({ kind: 'percent', value: 0 }); toast.info('Kosár ürítve'); };
+  const clearAll = () => {
+    setCart([]);
+    setCouponApplied(null);
+    setCoupon('');
+    setManualDiscount({ kind: 'percent', value: 0 });
+    setPackagingFeeInput(null);
+    setDrsEnabledManual(null);
+    toast.info('Kosár ürítve');
+  };
 
   const submitOrder = async () => {
     if (!customer.name || !customer.phone) return toast.error('Kérlek add meg a vendég adatait');
@@ -99,6 +150,8 @@ const NewOrder = () => {
         zip: address.zip, city: address.city, street: address.street, floor: address.floor,
         type: orderType, payment, channel,
         items: cart, subtotal, deliveryFee,
+        packagingFee,
+        drsFee,
         discountPct: (couponApplied?.kind === 'percent' ? couponApplied.value : 0) + (manualDiscount.kind === 'percent' ? Math.min(100, manualVal) : 0),
         discountAmount,
         couponCode: couponApplied?.code || '',
@@ -106,6 +159,7 @@ const NewOrder = () => {
       });
       toast.success(`Rendelés elküldve: ${o.id}`);
       setCart([]); setCouponApplied(null); setCoupon(''); setManualDiscount({ kind: 'percent', value: 0 }); setInternalNote('');
+      setPackagingFeeInput(null); setDrsEnabledManual(null);
       setCustomer({ name: '', phone: '' }); setAddress({ zip: '3734', city: 'Szuhogy', street: '', floor: '', note: '' });
     } catch (e) {
       toast.error(e.response?.data?.detail || 'Hiba a rendelés mentésekor');
@@ -268,7 +322,7 @@ const NewOrder = () => {
             )}
           </div>
 
-          <div className="mt-4 space-y-1.5 text-sm">
+          <div className="mt-4 space-y-2 text-sm">
             <Row label="Részösszeg" value={formatFt(subtotal)} />
             {discountAmount > 0 && <Row label={couponApplied && manualAmount > 0 ? 'Kedvezmény (kupon + kézi)' : couponApplied ? `Kupon ${couponApplied.code}` : `Kézi kedvezmény ${manualDiscount.kind === 'percent' ? `(${manualVal}%)` : ''}`} value={`- ${formatFt(discountAmount)}`} />}
             {orderType === 'delivery' && channel === 'foodora' && (
@@ -281,6 +335,56 @@ const NewOrder = () => {
               </div>
             )}
             {orderType === 'delivery' && channel !== 'foodora' && <Row label="Kiszállítási díj" value={formatFt(deliveryFee)} />}
+
+            {/* Packaging fee row with manual edit */}
+            <div className="flex items-center justify-between py-1 border-t border-neutral-100">
+              <div className="text-neutral-700 font-medium inline-flex items-center gap-1.5">
+                <span>📦 Csomagolási díj</span>
+                <button
+                  type="button"
+                  onClick={() => setPackagingFeeInput(packagingFee > 0 ? 0 : (restaurantStatus?.packagingFee || 200))}
+                  className="text-[11px] text-neutral-400 hover:text-neutral-700 underline"
+                >
+                  {packagingFee > 0 ? 'Kikapcsolás' : 'Bekapcsolás'}
+                </button>
+              </div>
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  min="0"
+                  step="50"
+                  value={packagingFee}
+                  onChange={(e) => setPackagingFeeInput(Math.max(0, Number(e.target.value) || 0))}
+                  className="w-20 text-right font-bold border border-neutral-300 rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-neutral-900 bg-white"
+                />
+                <span className="text-xs text-neutral-500 font-semibold">Ft</span>
+              </div>
+            </div>
+
+            {/* DRS Fee row with toggle (50 Ft) */}
+            <div className="flex items-center justify-between py-1 border-t border-neutral-100">
+              <div className="text-neutral-700 font-medium inline-flex items-center gap-2">
+                <span>♻️ DRS visszaváltási díj (50 Ft)</span>
+                <span className="text-[11px] text-neutral-400">({drsCount} tétel)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDrsEnabledManual(!isDrsActive)}
+                  className={`px-2 py-0.5 rounded text-[11px] font-bold border transition-colors ${
+                    isDrsActive
+                      ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                      : 'bg-neutral-100 text-neutral-500 border-neutral-300'
+                  }`}
+                >
+                  {isDrsActive ? 'BE (50 Ft)' : 'KI'}
+                </button>
+                <span className="font-bold text-neutral-900 text-xs w-16 text-right">
+                  {formatFt(drsFee)}
+                </span>
+              </div>
+            </div>
+
             <div className="flex items-center justify-between pt-2 mt-2 border-t border-neutral-200">
               <div className="text-lg font-extrabold text-neutral-900">ÖSSZESEN:</div>
               <div className="text-2xl font-extrabold text-neutral-900">{formatFt(total)}</div>
@@ -300,7 +404,7 @@ const NewOrder = () => {
                   phone: customer.phone,
                   zip: address.zip, city: address.city, street: address.street, floor: address.floor,
                   type: orderType, payment, channel,
-                  items: cart, subtotal, deliveryFee, discountAmount, total,
+                  items: cart, subtotal, deliveryFee, packagingFee, drsFee, discountAmount, total,
                   note: internalNote,
                   couponCode: couponApplied?.code,
                   createdAt: new Date().toISOString(),

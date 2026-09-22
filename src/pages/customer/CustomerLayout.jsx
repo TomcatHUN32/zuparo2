@@ -46,11 +46,15 @@ const CustomerLayout = () => {
 
       <header className="sticky top-0 z-30 bg-neutral-950/90 backdrop-blur-md border-b border-neutral-900">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-4">
-          <Link to="/" className="flex items-center gap-2.5 sm:gap-3 shrink-0">
-            <img src={LOGO_URL} alt="ZUPARO" className="h-10 w-10 sm:h-12 sm:w-12 object-contain" />
+          <Link to="/" className="flex items-center gap-2.5 sm:gap-3 shrink-0 group">
+            <img
+              src={LOGO_URL}
+              alt="ZUPARO FOOD & MORE"
+              className="h-11 w-11 sm:h-13 sm:w-13 object-contain transition-transform group-hover:scale-105"
+            />
             <div className="leading-none">
-              <div className="text-xl sm:text-2xl font-extrabold tracking-wider gold-text-gradient">ZUPARO</div>
-              <div className="text-[8px] sm:text-[9px] tracking-[0.35em] text-neutral-500">FOOD &amp; MORE</div>
+              <div className="text-xl sm:text-2xl font-black tracking-wider gold-text-gradient">ZUPARO</div>
+              <div className="text-[8px] sm:text-[9px] tracking-[0.35em] text-neutral-400 font-semibold">FOOD &amp; MORE</div>
             </div>
           </Link>
 

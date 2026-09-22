@@ -268,6 +268,8 @@ const Orders = () => {
                         <span>Részösszeg: <span className="font-semibold text-neutral-900">{formatFt(o.subtotal || 0)}</span></span>
                         {(o.discountAmount || 0) > 0 && <span>Kedvezmény{o.couponCode ? ` (${o.couponCode})` : ''}: <span className="font-semibold text-emerald-700">- {formatFt(o.discountAmount)}</span></span>}
                         {o.type === 'delivery' && <span>Szállítás: <span className="font-semibold text-neutral-900">{formatFt(o.deliveryFee || 0)}</span></span>}
+                        {(o.packagingFee || 0) > 0 && <span>Csomagolás: <span className="font-semibold text-neutral-900">{formatFt(o.packagingFee)}</span></span>}
+                        {(o.drsFee || 0) > 0 && <span>DRS: <span className="font-semibold text-emerald-700">{formatFt(o.drsFee)}</span></span>}
                         <span>Fizetés: <span className="font-semibold text-neutral-900">{o.payment === 'cash' ? 'Készpénz' : o.payment === 'card' ? 'Kártya' : 'Online'}</span></span>
                       </div>
                       <button

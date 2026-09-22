@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useData } from '../../context/DataContext';
 import { CATEGORIES, formatFt, LOGO_URL } from '../../mock/mockData';
-import { Plus, Trash2, Pencil, Check, X, ChefHat, Upload, Link as LinkIcon, Image as ImageIcon, Scale, ArrowRight } from 'lucide-react';
+import { Plus, Trash2, Pencil, Check, X, ChefHat, Upload, Link as LinkIcon, Image as ImageIcon, Scale, ArrowRight, Package, Recycle } from 'lucide-react';
 import { toast } from 'sonner';
 import { convertUnit, getRecipeUnitsForBaseUnit, getDefaultRecipeUnit } from '../../utils/units';
 
@@ -11,6 +11,8 @@ const empty = {
   price: '',
   priceFoodora: '',
   priceFalatozz: '',
+  packagingFee: '',
+  drsFeeEnabled: false,
   category: 'pizzak',
   image: '',
 };
@@ -52,12 +54,14 @@ const MenuAdmin = () => {
       price: Number(draft.price),
       priceFoodora: draft.priceFoodora ? Number(draft.priceFoodora) : null,
       priceFalatozz: draft.priceFalatozz ? Number(draft.priceFalatozz) : null,
+      packagingFee: draft.packagingFee !== '' ? Math.max(0, Number(draft.packagingFee) || 0) : 0,
+      drsFeeEnabled: Boolean(draft.drsFeeEnabled),
       image: draft.image || '',
       recipe: [],
     });
     setDraft({ ...empty, category: cat });
     if (fileInputRef.current) fileInputRef.current.value = '';
-    toast.success('Termék hozzáadva képpel');
+    toast.success('Termék hozzáadva');
   };
 
   const saveEdit = async (id) => {
@@ -67,6 +71,8 @@ const MenuAdmin = () => {
       price: Number(ed.price),
       priceFoodora: ed.priceFoodora ? Number(ed.priceFoodora) : null,
       priceFalatozz: ed.priceFalatozz ? Number(ed.priceFalatozz) : null,
+      packagingFee: ed.packagingFee !== '' && ed.packagingFee !== null && ed.packagingFee !== undefined ? Math.max(0, Number(ed.packagingFee) || 0) : 0,
+      drsFeeEnabled: Boolean(ed.drsFeeEnabled),
       image: ed.image || '',
     });
     setEditing(null);
@@ -141,6 +147,53 @@ const MenuAdmin = () => {
             >
               <Plus size={16} /> Mentés
             </button>
+          </div>
+
+          {/* Packaging fee and DRS toggle row */}
+          <div className="bg-neutral-50 p-3 rounded-lg border border-neutral-200 flex flex-wrap items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center gap-6">
+              {/* Packaging fee input */}
+              <div className="flex items-center gap-2">
+                <Package size={15} className="text-amber-600" />
+                <label className="text-xs font-semibold text-neutral-700">Csomagolási díj:</label>
+                <div className="flex items-center">
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="pl. 150"
+                    value={draft.packagingFee}
+                    onChange={(e) => setDraft({ ...draft, packagingFee: e.target.value })}
+                    className="w-24 px-2.5 py-1.5 text-xs border border-neutral-300 rounded-l-md bg-white focus:outline-none focus:ring-1 focus:ring-amber-500 text-right"
+                  />
+                  <span className="px-2 py-1.5 text-xs bg-neutral-200 border border-l-0 border-neutral-300 rounded-r-md text-neutral-600 font-medium">
+                    Ft
+                  </span>
+                </div>
+                <span className="text-[11px] text-neutral-400">(üresen 0 Ft)</span>
+              </div>
+
+              {/* 50 Ft DRS fee toggle */}
+              <div className="flex items-center gap-2">
+                <Recycle size={15} className="text-emerald-600" />
+                <label className="text-xs font-semibold text-neutral-700">50 Ft DRS díj:</label>
+                <button
+                  type="button"
+                  onClick={() => setDraft({ ...draft, drsFeeEnabled: !draft.drsFeeEnabled })}
+                  className={`px-3 py-1.5 rounded-md text-xs font-bold inline-flex items-center gap-1.5 transition-all border ${
+                    draft.drsFeeEnabled
+                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                      : 'bg-white text-neutral-600 border-neutral-300 hover:bg-neutral-100'
+                  }`}
+                >
+                  <span className={`h-2 w-2 rounded-full ${draft.drsFeeEnabled ? 'bg-white animate-pulse' : 'bg-neutral-400'}`} />
+                  {draft.drsFeeEnabled ? 'BEKAPCSOLVA (+50 Ft DRS)' : 'KIKAPCSOLVA (Nincs DRS)'}
+                </button>
+              </div>
+            </div>
+
+            <div className="text-[11px] text-neutral-500">
+              * A rendelés leadásakor tételenként számolódik
+            </div>
           </div>
 
           {/* Image Upload Row (PC file or URL) */}
@@ -232,6 +285,8 @@ const MenuAdmin = () => {
                 <th className="py-2.5 px-4 text-right">Házi</th>
                 <th className="py-2.5 px-4 text-right">Foodora</th>
                 <th className="py-2.5 px-4 text-right">Falatozz</th>
+                <th className="py-2.5 px-4 text-center">Csomagolás</th>
+                <th className="py-2.5 px-4 text-center">50 Ft DRS</th>
                 <th className="py-2.5 px-4 text-center">Recept</th>
                 <th className="py-2.5 px-4 text-right">Elérhető</th>
                 <th className="py-2.5 px-4 text-right">Művelet</th>
@@ -310,6 +365,31 @@ const MenuAdmin = () => {
                       className="w-20 px-2 py-1 border rounded text-right bg-white"
                     />
                   </td>
+                  <td className="py-3 px-4 text-center">
+                    <div className="inline-flex items-center gap-1">
+                      <input
+                        type="number"
+                        placeholder="0 Ft"
+                        value={ed.packagingFee ?? ''}
+                        onChange={(e) => setEd({ ...ed, packagingFee: e.target.value })}
+                        className="w-16 px-1.5 py-1 border rounded text-right bg-white text-xs"
+                      />
+                      <span className="text-[11px] text-neutral-500">Ft</span>
+                    </div>
+                  </td>
+                  <td className="py-3 px-4 text-center">
+                    <button
+                      type="button"
+                      onClick={() => setEd({ ...ed, drsFeeEnabled: !ed.drsFeeEnabled })}
+                      className={`text-xs px-2.5 py-1 rounded-full border font-semibold inline-flex items-center gap-1 transition-colors ${
+                        ed.drsFeeEnabled
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                          : 'bg-neutral-100 text-neutral-400 border-neutral-200'
+                      }`}
+                    >
+                      <Recycle size={12} /> {ed.drsFeeEnabled ? '50 Ft' : 'Ki'}
+                    </button>
+                  </td>
                   <td className="py-3 px-4 text-center text-neutral-400">—</td>
                   <td className="py-3 px-4 text-right">—</td>
                   <td className="py-3 px-4 text-right whitespace-nowrap">
@@ -348,6 +428,29 @@ const MenuAdmin = () => {
                   <td className="py-2.5 px-4 text-right text-neutral-700 font-medium">
                     {m.priceFalatozz ? formatFt(m.priceFalatozz) : <span className="text-neutral-300">—</span>}
                   </td>
+                  <td className="py-2.5 px-4 text-center text-xs text-neutral-700 font-medium">
+                    {m.packagingFee > 0 ? (
+                      <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-800 px-2 py-0.5 rounded-full border border-amber-200 font-bold">
+                        <Package size={11} /> {formatFt(m.packagingFee)}
+                      </span>
+                    ) : (
+                      <span className="text-neutral-400">0 Ft</span>
+                    )}
+                  </td>
+                  <td className="py-2.5 px-4 text-center">
+                    <button
+                      type="button"
+                      onClick={() => updateMenuItem(m.id, { drsFeeEnabled: !m.drsFeeEnabled })}
+                      className={`text-xs px-2.5 py-0.5 rounded-full border font-semibold inline-flex items-center gap-1 transition-colors ${
+                        m.drsFeeEnabled
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                          : 'bg-neutral-100 text-neutral-400 border-neutral-200 hover:text-neutral-600'
+                      }`}
+                      title="Kattintással ki/be kapcsolható a termék 50 Ft-os DRS díja"
+                    >
+                      <Recycle size={11} /> {m.drsFeeEnabled ? '50 Ft' : 'Nincs'}
+                    </button>
+                  </td>
                   <td className="py-2.5 px-4 text-center">
                     <button
                       onClick={() => setRecipeFor(m.id)}
@@ -372,7 +475,14 @@ const MenuAdmin = () => {
                     <button
                       onClick={() => {
                         setEditing(m.id);
-                        setEd({ ...m, priceFoodora: m.priceFoodora || '', priceFalatozz: m.priceFalatozz || '', image: m.image || '' });
+                        setEd({
+                          ...m,
+                          priceFoodora: m.priceFoodora || '',
+                          priceFalatozz: m.priceFalatozz || '',
+                          packagingFee: m.packagingFee ?? '',
+                          drsFeeEnabled: Boolean(m.drsFeeEnabled),
+                          image: m.image || '',
+                        });
                       }}
                       className="h-8 w-8 rounded-md border border-neutral-200 text-neutral-500 inline-flex items-center justify-center mr-1 hover:bg-neutral-100 hover:text-neutral-900"
                     >
@@ -393,7 +503,7 @@ const MenuAdmin = () => {
               ))}
               {items.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-neutral-500">
+                  <td colSpan={11} className="py-12 text-center text-neutral-500">
                     Nincs termék ebben a kategóriában.
                   </td>
                 </tr>

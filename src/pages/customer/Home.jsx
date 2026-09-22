@@ -107,7 +107,7 @@ const Home = () => {
                 <div className="gold-text-gradient font-extrabold text-base">{formatFt(m.price)}</div>
                 <button
                   onClick={() => {
-                    add({ id: m.id, name: m.name, price: m.price });
+                    add(m);
                     toast.success(`${m.name} kosárba téve`);
                   }}
                   className="h-8 w-8 rounded-full bg-rose-500 hover:bg-rose-600 text-white flex items-center justify-center transition-colors shadow-xs"

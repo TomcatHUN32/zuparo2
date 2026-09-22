@@ -1,14 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { useData } from '../../context/DataContext';
 import { formatFt } from '../../mock/mockData';
-import { MapPin, Bike, Ticket, ClipboardList, Plus, Trash2, Pencil, Check, X, ArrowRight, FileArchive, BadgeCheck, Search, Calendar, Printer, RefreshCw, CheckCircle2, Clock, Eye, History } from 'lucide-react';
+import { MapPin, Bike, Ticket, ClipboardList, Plus, Trash2, Pencil, Check, X, ArrowRight, FileArchive, BadgeCheck, Search, Calendar, Printer, RefreshCw, CheckCircle2, Clock, Eye, History, Package, Recycle } from 'lucide-react';
 import { toast } from 'sonner';
 import axios from 'axios';
 
 const API = (typeof process !== 'undefined' && process.env?.REACT_APP_BACKEND_URL ? process.env.REACT_APP_BACKEND_URL : '') + '/api';
 
 const TABS = [
-  { id: 'status', label: 'Nyitvatartás & 0-24', icon: Clock },
+  { id: 'status', label: 'Nyitvatartás & Díjak', icon: Clock },
   { id: 'zones', label: 'Szállítási területek', icon: MapPin },
   { id: 'couriers', label: 'Futárok kezelése', icon: Bike },
   { id: 'coupons', label: 'Kuponkódok', icon: Ticket },
@@ -663,12 +663,16 @@ const CourierCloseTab = () => {
   );
 };
 
-// ---------------- Restaurant Status & 0-24 Tab ----------------
+// ---------------- Restaurant Status & Fees Tab ----------------
 const StatusTab = () => {
   const { restaurantStatus, updateRestaurantStatus } = useData();
   const [isOpen, setIsOpen] = useState(restaurantStatus?.isOpen ?? true);
   const [alwaysOpen24, setAlwaysOpen24] = useState(restaurantStatus?.alwaysOpen24 ?? true);
   const [reason, setReason] = useState(restaurantStatus?.manualCloseReason || '');
+  const [packagingFeeEnabled, setPackagingFeeEnabled] = useState(restaurantStatus?.packagingFeeEnabled ?? true);
+  const [packagingFee, setPackagingFee] = useState(restaurantStatus?.packagingFee ?? 200);
+  const [drsFeeEnabled, setDrsFeeEnabled] = useState(restaurantStatus?.drsFeeEnabled ?? true);
+  const [drsFee, setDrsFee] = useState(restaurantStatus?.drsFee ?? 50);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -676,6 +680,10 @@ const StatusTab = () => {
       setIsOpen(restaurantStatus.isOpen ?? true);
       setAlwaysOpen24(restaurantStatus.alwaysOpen24 ?? true);
       setReason(restaurantStatus.manualCloseReason || '');
+      setPackagingFeeEnabled(restaurantStatus.packagingFeeEnabled ?? true);
+      setPackagingFee(restaurantStatus.packagingFee ?? 200);
+      setDrsFeeEnabled(restaurantStatus.drsFeeEnabled ?? true);
+      setDrsFee(restaurantStatus.drsFee ?? 50);
     }
   }, [restaurantStatus]);
 
@@ -686,8 +694,12 @@ const StatusTab = () => {
         isOpen,
         alwaysOpen24,
         manualCloseReason: isOpen ? '' : reason,
+        packagingFeeEnabled,
+        packagingFee: Number(packagingFee) || 0,
+        drsFeeEnabled,
+        drsFee: Number(drsFee) || 50,
       });
-      toast.success('Nyitvatartási beállítások sikeresen elmentve!');
+      toast.success('Beállítások és díjak sikeresen elmentve!');
     } catch (e) {
       toast.error('Hiba történt a mentéskor');
     } finally {
@@ -735,6 +747,111 @@ const StatusTab = () => {
               {isOpen ? 'Étterem bezárása most' : 'Étterem kinyitása'}
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* Packaging & DRS Fees Box */}
+      <div className="bg-white rounded-2xl border border-neutral-200 p-6 space-y-6">
+        <div className="border-b border-neutral-100 pb-3">
+          <h4 className="text-base font-bold text-neutral-900 flex items-center gap-2">
+            <Package size={18} className="text-amber-600" />
+            Csomagolási díj és DRS (Visszaváltási díj) beállítása
+          </h4>
+          <p className="text-xs text-neutral-500 mt-1">
+            Ezek a tételek automatikusan felszámításra kerülnek az online webshopban és a telefonos (POS) felületen is, valamint a blokkon külön sorban jelennek meg.
+          </p>
+        </div>
+
+        {/* Packaging Fee Setting */}
+        <div className="p-4 rounded-xl border border-neutral-200 bg-neutral-50/70 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <div className="font-bold text-sm text-neutral-900 flex items-center gap-2">
+                📦 Csomagolási díj felszámítása
+              </div>
+              <div className="text-xs text-neutral-500 mt-1">
+                Ha be van kapcsolva, a megadott forint összeg hozzáadódik a rendeléshez elvitelnél és házhozszállításnál.
+              </div>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input
+                type="checkbox"
+                checked={packagingFeeEnabled}
+                onChange={(e) => setPackagingFeeEnabled(e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-14 h-7 bg-neutral-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[4px] after:bg-white after:border-neutral-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-amber-600"></div>
+            </label>
+          </div>
+
+          {packagingFeeEnabled && (
+            <div className="pt-2 border-t border-neutral-200 flex flex-col sm:flex-row sm:items-center gap-3">
+              <label className="text-xs font-bold text-neutral-700 whitespace-nowrap">
+                Csomagolási díj összege (Ft):
+              </label>
+              <div className="relative w-40">
+                <input
+                  type="number"
+                  min="0"
+                  step="50"
+                  value={packagingFee}
+                  onChange={(e) => setPackagingFee(e.target.value)}
+                  placeholder="200"
+                  className="w-full px-3 py-2 pr-8 text-sm font-bold border border-neutral-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+                <span className="absolute right-3 top-2.5 text-xs text-neutral-500 font-bold">Ft</span>
+              </div>
+              <span className="text-xs text-neutral-500">
+                (Alapértelmezett: 200 Ft / rendelés, bármikor módosítható)
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* DRS Fee Setting */}
+        <div className="p-4 rounded-xl border border-neutral-200 bg-neutral-50/70 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <div className="font-bold text-sm text-neutral-900 flex items-center gap-2">
+                <Recycle size={16} className="text-emerald-600" /> DRS visszaváltási díj (50 Ft)
+              </div>
+              <div className="text-xs text-neutral-500 mt-1">
+                Kötelező visszaváltási díjas termékek (dobozos üdítők, PET palackok, stb.) esetén felszámított jogszabályi díj (50 Ft / palack). Itt bármikor globálisan ki-be kapcsolhatod.
+              </div>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input
+                type="checkbox"
+                checked={drsFeeEnabled}
+                onChange={(e) => setDrsFeeEnabled(e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-14 h-7 bg-neutral-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[4px] after:bg-white after:border-neutral-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-emerald-600"></div>
+            </label>
+          </div>
+
+          {drsFeeEnabled && (
+            <div className="pt-2 border-t border-neutral-200 flex flex-col sm:flex-row sm:items-center gap-3">
+              <label className="text-xs font-bold text-neutral-700 whitespace-nowrap">
+                DRS díj összege:
+              </label>
+              <div className="relative w-36">
+                <input
+                  type="number"
+                  min="0"
+                  step="10"
+                  value={drsFee}
+                  onChange={(e) => setDrsFee(e.target.value)}
+                  placeholder="50"
+                  className="w-full px-3 py-2 pr-8 text-sm font-bold border border-neutral-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+                <span className="absolute right-3 top-2.5 text-xs text-neutral-500 font-bold">Ft</span>
+              </div>
+              <span className="text-xs text-emerald-700 font-medium">
+                (A törvényi előírás szerint 50 Ft / palack)
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -812,7 +929,7 @@ const StatusTab = () => {
             disabled={loading}
             className="px-6 py-2.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-white text-sm font-bold shadow-md transition-all inline-flex items-center gap-2 disabled:opacity-50"
           >
-            <Check size={16} /> Mentés és alkalmazás
+            <Check size={16} /> Beállítások és díjak mentése
           </button>
         </div>
       </div>

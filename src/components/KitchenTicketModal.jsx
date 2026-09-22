@@ -255,6 +255,18 @@ export const KitchenTicketModal = ({ order, isOpen, onClose }) => {
                     <span>{formatFt(order.deliveryFee)}</span>
                   </div>
                 )}
+                {Boolean(order.packagingFee) && (
+                  <div className="flex justify-between">
+                    <span className="text-neutral-600">Csomagolási díj:</span>
+                    <span>{formatFt(order.packagingFee)}</span>
+                  </div>
+                )}
+                {Boolean(order.drsFee) && (
+                  <div className="flex justify-between">
+                    <span className="text-neutral-600">DRS visszaváltási díj:</span>
+                    <span>{formatFt(order.drsFee)}</span>
+                  </div>
+                )}
                 {Boolean(order.discountAmount) && (
                   <div className="flex justify-between text-red-600">
                     <span>Kedvezmény ({order.couponCode || 'Kupon'}):</span>

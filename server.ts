@@ -50,6 +50,8 @@ interface MenuItem {
   available: boolean;
   recipe: Array<{ inventoryId: string; qty: number; unit?: string }>;
   image?: string;
+  packagingFee?: number;
+  drsFeeEnabled?: boolean;
 }
 
 // Unit conversion helper for inventory deduction and recipe management
@@ -96,6 +98,11 @@ interface RestaurantStatus {
   isOpen: boolean;
   allowOrder247: boolean;
   customNotice: string;
+  manualCloseReason?: string;
+  packagingFeeEnabled: boolean;
+  packagingFee: number;
+  drsFeeEnabled: boolean;
+  drsFee: number;
   lastChangedAt: string;
 }
 
@@ -162,6 +169,8 @@ interface Order {
   items: OrderItem[];
   subtotal: number;
   deliveryFee: number;
+  packagingFee?: number;
+  drsFee?: number;
   discountPct: number;
   discountAmount: number;
   couponCode?: string;
@@ -199,11 +208,16 @@ const coupons: Map<string, Coupon> = new Map();
 const orders: Map<string, Order> = new Map();
 const dayCloses: DayClose[] = [];
 
-// Restaurant manual Open/Closed and 0-24 order acceptance status
+// Restaurant manual Open/Closed and 0-24 order acceptance status, packaging & DRS fees
 let restaurantStatus: RestaurantStatus = {
   isOpen: true,
   allowOrder247: true,
   customNotice: '0-24 órában fogadjuk a rendeléseket! Kiszállítás és átvétel zavartalan.',
+  manualCloseReason: '',
+  packagingFeeEnabled: true,
+  packagingFee: 200,
+  drsFeeEnabled: true,
+  drsFee: 50,
   lastChangedAt: new Date().toISOString(),
 };
 
@@ -336,10 +350,15 @@ async function syncMongoData() {
       }
       if (stDoc) {
         restaurantStatus = {
-          isOpen: stDoc.isOpen,
-          allowOrder247: stDoc.allowOrder247,
-          customNotice: stDoc.customNotice,
-          lastChangedAt: stDoc.lastChangedAt,
+          isOpen: stDoc.isOpen ?? true,
+          allowOrder247: stDoc.allowOrder247 ?? true,
+          customNotice: stDoc.customNotice || '0-24 órában fogadjuk a rendeléseket! Kiszállítás és átvétel zavartalan.',
+          manualCloseReason: stDoc.manualCloseReason || '',
+          packagingFeeEnabled: stDoc.packagingFeeEnabled !== undefined ? Boolean(stDoc.packagingFeeEnabled) : true,
+          packagingFee: stDoc.packagingFee !== undefined ? Number(stDoc.packagingFee) : 200,
+          drsFeeEnabled: stDoc.drsFeeEnabled !== undefined ? Boolean(stDoc.drsFeeEnabled) : true,
+          drsFee: stDoc.drsFee !== undefined ? Number(stDoc.drsFee) : 50,
+          lastChangedAt: stDoc.lastChangedAt || new Date().toISOString(),
         };
       }
       console.log(`✅ [MongoDB] Loaded ${oDocs.length} orders and ${mDocs.length} menu items from MongoDB!`);
@@ -470,6 +489,7 @@ function seedData() {
 
   for (const [category, name, description, price] of rawMenu) {
     const id = crypto.randomUUID();
+    const isDrinkCategory = category === 'italok';
     menuItems.set(id, {
       id,
       category,
@@ -481,6 +501,8 @@ function seedData() {
       available: true,
       recipe: [],
       image: sampleImages[name] || '',
+      packagingFee: isDrinkCategory ? 0 : 150,
+      drsFeeEnabled: isDrinkCategory,
     });
   }
 
@@ -818,17 +840,42 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
   res.json(safeUser);
 });
 
-// Restaurant Status (Manual Open/Closed and 0-24 ordering)
+// Restaurant Status (Manual Open/Closed, 0-24 ordering, Packaging & DRS fees)
 app.get('/api/restaurant/status', (req, res) => {
   res.json(restaurantStatus);
 });
 
 app.post('/api/restaurant/status', requireAdmin, (req, res) => {
-  const { isOpen, allowOrder247, customNotice } = req.body;
+  const {
+    isOpen,
+    allowOrder247,
+    customNotice,
+    manualCloseReason,
+    packagingFeeEnabled,
+    packagingFee,
+    drsFeeEnabled,
+    drsFee,
+  } = req.body;
+
   if (isOpen !== undefined) restaurantStatus.isOpen = Boolean(isOpen);
   if (allowOrder247 !== undefined) restaurantStatus.allowOrder247 = Boolean(allowOrder247);
   if (customNotice !== undefined) restaurantStatus.customNotice = String(customNotice);
+  if (manualCloseReason !== undefined) restaurantStatus.manualCloseReason = String(manualCloseReason);
+  if (packagingFeeEnabled !== undefined) restaurantStatus.packagingFeeEnabled = Boolean(packagingFeeEnabled);
+  if (packagingFee !== undefined) restaurantStatus.packagingFee = Math.max(0, Number(packagingFee) || 0);
+  if (drsFeeEnabled !== undefined) restaurantStatus.drsFeeEnabled = Boolean(drsFeeEnabled);
+  if (drsFee !== undefined) restaurantStatus.drsFee = Math.max(0, Number(drsFee) || 0);
+
   restaurantStatus.lastChangedAt = new Date().toISOString();
+
+  if (isMongoConnected) {
+    RestaurantStatusModel.findOneAndUpdate(
+      { id: 'singleton_status' },
+      { id: 'singleton_status', ...restaurantStatus },
+      { upsert: true }
+    ).catch((e) => console.error('MongoDB restaurant status update error:', e));
+  }
+
   res.json(restaurantStatus);
 });
 
@@ -860,6 +907,8 @@ app.post('/api/menu', requireAdmin, (req, res) => {
     available: body.available !== undefined ? Boolean(body.available) : true,
     recipe: Array.isArray(body.recipe) ? body.recipe : [],
     image: body.image ? String(body.image) : '',
+    packagingFee: body.packagingFee !== undefined && body.packagingFee !== null && body.packagingFee !== '' ? Math.max(0, Number(body.packagingFee) || 0) : 0,
+    drsFeeEnabled: Boolean(body.drsFeeEnabled),
   };
   menuItems.set(id, item);
   res.json(item);
@@ -871,6 +920,12 @@ app.put('/api/menu/:id', requireAdmin, (req, res) => {
   if (!item) return res.status(404).json({ error: 'Nem található étel' });
 
   const updated: MenuItem = { ...item, ...req.body };
+  if (req.body.packagingFee !== undefined) {
+    updated.packagingFee = req.body.packagingFee !== null && req.body.packagingFee !== '' ? Math.max(0, Number(req.body.packagingFee) || 0) : 0;
+  }
+  if (req.body.drsFeeEnabled !== undefined) {
+    updated.drsFeeEnabled = Boolean(req.body.drsFeeEnabled);
+  }
   if (req.body.image !== undefined) {
     updated.image = String(req.body.image || '');
   }
@@ -1078,9 +1133,14 @@ app.post('/api/orders', (req, res) => {
   }
 
   const orderId = generateNextOrderId();
+  const packagingFee = o.packagingFee !== undefined ? Number(o.packagingFee) : (restaurantStatus.packagingFeeEnabled ? restaurantStatus.packagingFee : 0);
+  const drsFee = o.drsFee !== undefined ? Number(o.drsFee) : (restaurantStatus.drsFeeEnabled ? restaurantStatus.drsFee : 0);
+
   const newOrder: Order = {
     ...o,
     id: orderId,
+    packagingFee: Math.max(0, Number(packagingFee) || 0),
+    drsFee: Math.max(0, Number(drsFee) || 0),
     status: 'new',
     courierId: o.courierId || null,
     createdAt: new Date().toISOString(),

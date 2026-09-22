@@ -26,6 +26,10 @@ export const DataProvider = ({ children }) => {
     isOpen: true,
     allowOrder247: true,
     customNotice: '0-24 órában fogadjuk rendeléseidet! Kiszállítás és átvétel zavartalan.',
+    packagingFeeEnabled: true,
+    packagingFee: 200,
+    drsFeeEnabled: true,
+    drsFee: 50,
   });
   const [loaded, setLoaded] = useState(false);
   const [soundMuted, setSoundMutedState] = useState(isAudioMuted());
