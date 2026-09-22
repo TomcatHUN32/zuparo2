@@ -5,6 +5,19 @@ import { createServer as createViteServer } from 'vite';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
+import mongoose from 'mongoose';
+import {
+  UserModel,
+  MenuItemModel,
+  ZoneModel,
+  CourierModel,
+  CustomerModel,
+  InventoryModel,
+  CouponModel,
+  OrderModel,
+  RestaurantStatusModel,
+  DayCloseModel,
+} from './serverModels.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -161,6 +174,8 @@ interface Order {
   userId?: string | null;
   isOnlineOrder?: boolean;
   source?: string;
+  cancelledAt?: string;
+  cancelReason?: string;
 }
 
 interface DayClose {
@@ -174,7 +189,7 @@ interface DayClose {
   closedAt: string;
 }
 
-// Memory database
+// Memory database (primary fast cache, synchronized with MongoDB when connected)
 const users: Map<string, User> = new Map();
 const menuItems: Map<string, MenuItem> = new Map();
 const deliveryZones: Map<string, Zone> = new Map();
@@ -192,6 +207,148 @@ let restaurantStatus: RestaurantStatus = {
   customNotice: '0-24 órában fogadjuk a rendeléseket! Kiszállítás és átvétel zavartalan.',
   lastChangedAt: new Date().toISOString(),
 };
+
+// ================= MONGODB INTEGRATION & SYNC =================
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/zuparo';
+let isMongoConnected = false;
+
+// Timezone helper for Budapest / Hungary (midnight rollover)
+function getBudapestDate(d: Date = new Date()): string {
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Budapest' }).format(d);
+  } catch {
+    return d.toISOString().split('T')[0];
+  }
+}
+
+function getOrderBudapestDate(createdAt: string): string {
+  try {
+    const d = new Date(createdAt);
+    if (!isNaN(d.getTime())) {
+      return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Budapest' }).format(d);
+    }
+  } catch {}
+  return createdAt ? createdAt.split('T')[0] : '';
+}
+
+async function initMongoDatabase() {
+  const uri = process.env.MONGODB_URI;
+  if (!uri && process.env.NODE_ENV !== 'production') {
+    console.log('ℹ️ MONGODB_URI not configured in development environment. Using in-memory database with full local persistence.');
+    return;
+  }
+  try {
+    console.log(`[MongoDB] Connecting to MongoDB instance at ${MONGODB_URI}...`);
+    await mongoose.connect(MONGODB_URI, {
+      serverSelectionTimeoutMS: 3000,
+    });
+    isMongoConnected = true;
+    console.log('✅ [MongoDB] Connected to MongoDB successfully!');
+    await syncMongoData();
+  } catch (err: any) {
+    console.warn(`⚠️ [MongoDB] Connection warning (${err?.message || 'timeout'}). Continuing with in-memory storage fallback.`);
+    isMongoConnected = false;
+  }
+}
+
+async function syncMongoData() {
+  if (!isMongoConnected) return;
+  try {
+    const userCount = await UserModel.countDocuments();
+    if (userCount === 0) {
+      console.log('🌱 [MongoDB] Empty database detected. Seeding collections into MongoDB...');
+      const uList = Array.from(users.values());
+      if (uList.length) await UserModel.insertMany(uList);
+
+      const mList = Array.from(menuItems.values());
+      if (mList.length) await MenuItemModel.insertMany(mList);
+
+      const zList = Array.from(deliveryZones.values());
+      if (zList.length) await ZoneModel.insertMany(zList);
+
+      const cList = Array.from(couriers.values());
+      if (cList.length) await CourierModel.insertMany(cList);
+
+      const iList = Array.from(inventoryItems.values());
+      if (iList.length) await InventoryModel.insertMany(iList);
+
+      const cpList = Array.from(coupons.values());
+      if (cpList.length) await CouponModel.insertMany(cpList);
+
+      const oList = Array.from(orders.values());
+      if (oList.length) await OrderModel.insertMany(oList);
+
+      await RestaurantStatusModel.findOneAndUpdate(
+        { id: 'singleton_status' },
+        { id: 'singleton_status', ...restaurantStatus },
+        { upsert: true }
+      );
+      console.log('✅ [MongoDB] Initial data seeded to MongoDB successfully!');
+    } else {
+      console.log('📥 [MongoDB] Loading existing data from MongoDB into cache...');
+      const [uDocs, mDocs, zDocs, cDocs, custDocs, iDocs, cpDocs, oDocs, dcDocs, stDoc] = await Promise.all([
+        UserModel.find().lean(),
+        MenuItemModel.find().lean(),
+        ZoneModel.find().lean(),
+        CourierModel.find().lean(),
+        CustomerModel.find().lean(),
+        InventoryModel.find().lean(),
+        CouponModel.find().lean(),
+        OrderModel.find().lean(),
+        DayCloseModel.find().lean(),
+        RestaurantStatusModel.findOne({ id: 'singleton_status' }).lean(),
+      ]);
+
+      if (uDocs.length) {
+        users.clear();
+        for (const u of uDocs) users.set(u.id, u as any);
+      }
+      if (mDocs.length) {
+        menuItems.clear();
+        for (const m of mDocs) menuItems.set(m.id, m as any);
+      }
+      if (zDocs.length) {
+        deliveryZones.clear();
+        for (const z of zDocs) deliveryZones.set(z.id, z as any);
+      }
+      if (cDocs.length) {
+        couriers.clear();
+        for (const c of cDocs) couriers.set(c.id, c as any);
+      }
+      if (custDocs.length) {
+        customers.clear();
+        for (const cu of custDocs) customers.set(cu.id, cu as any);
+      }
+      if (iDocs.length) {
+        inventoryItems.clear();
+        for (const i of iDocs) inventoryItems.set(i.id, i as any);
+      }
+      if (cpDocs.length) {
+        coupons.clear();
+        for (const cp of cpDocs) coupons.set(cp.id, cp as any);
+      }
+      if (oDocs.length) {
+        orders.clear();
+        for (const o of oDocs) orders.set(o.id, o as any);
+      }
+      if (dcDocs.length) {
+        dayCloses.length = 0;
+        dayCloses.push(...(dcDocs as any));
+      }
+      if (stDoc) {
+        restaurantStatus = {
+          isOpen: stDoc.isOpen,
+          allowOrder247: stDoc.allowOrder247,
+          customNotice: stDoc.customNotice,
+          lastChangedAt: stDoc.lastChangedAt,
+        };
+      }
+      console.log(`✅ [MongoDB] Loaded ${oDocs.length} orders and ${mDocs.length} menu items from MongoDB!`);
+    }
+  } catch (err) {
+    console.error('MongoDB sync error:', err);
+  }
+}
 
 // Seed initial data
 function seedData() {
@@ -972,7 +1129,7 @@ app.post('/api/orders', (req, res) => {
       existingCust.orderCount = (existingCust.orderCount || 0) + 1;
     } else {
       const custId = crypto.randomUUID();
-      customers.set(custId, {
+      const newCust = {
         id: custId,
         name: o.customerName || 'Névtelen',
         phone: o.phone,
@@ -981,8 +1138,16 @@ app.post('/api/orders', (req, res) => {
         street: o.street || '',
         floor: o.floor || '',
         orderCount: 1,
-      });
+      };
+      customers.set(custId, newCust);
+      if (isMongoConnected) {
+        CustomerModel.create(newCust).catch((e) => console.error(e));
+      }
     }
+  }
+
+  if (isMongoConnected) {
+    OrderModel.create(newOrder).catch((e) => console.error('MongoDB order save error:', e));
   }
 
   res.json(newOrder);
@@ -993,14 +1158,7 @@ app.put('/api/orders/:id', requireAdmin, (req, res) => {
   const order = orders.get(id);
   if (!order) return res.status(404).json({ error: 'Nem található rendelés' });
 
-  // STRICT USER CONSTRAINT: Delivered orders cannot be cancelled (sztornó)
-  if (order.status === 'delivered' && req.body.status === 'cancelled') {
-    return res.status(400).json({
-      error: 'A rendelés már kiszállításra került! Kiszállított rendelést nem lehet sztornózni!',
-    });
-  }
-
-  // Inventory restore when cancelling an active order
+  // Inventory restore when cancelling an order (Sztornó)
   if (req.body.status === 'cancelled' && order.status !== 'cancelled') {
     try {
       if (Array.isArray(order.items)) {
@@ -1014,6 +1172,9 @@ app.put('/api/orders/:id', requireAdmin, (req, res) => {
                 const returnInBase = convertUnit(r.qty || 0, recipeUnit, inv.unit);
                 const totalReturn = returnInBase * (it.qty || 1);
                 inv.stock = Number((inv.stock + totalReturn).toFixed(4));
+                if (isMongoConnected) {
+                  InventoryModel.findOneAndUpdate({ id: inv.id }, { stock: inv.stock }).catch((e) => console.error(e));
+                }
               }
             }
           }
@@ -1024,8 +1185,18 @@ app.put('/api/orders/:id', requireAdmin, (req, res) => {
     }
   }
 
-  const updated: Order = { ...order, ...req.body };
+  const updated: Order = {
+    ...order,
+    ...req.body,
+    ...(req.body.status === 'cancelled' && {
+      cancelledAt: order.cancelledAt || new Date().toISOString(),
+      cancelReason: req.body.cancelReason || 'Adminisztrátori sztornó',
+    }),
+  };
   orders.set(id, updated);
+  if (isMongoConnected) {
+    OrderModel.findOneAndUpdate({ id }, updated, { upsert: true }).catch((e) => console.error(e));
+  }
   res.json(updated);
 });
 
@@ -1034,29 +1205,29 @@ app.delete('/api/orders/:id', requireAdmin, (req, res) => {
   const order = orders.get(id);
   if (!order) return res.status(404).json({ error: 'Nem található rendelés' });
 
-  // Disallow deleting delivered orders
-  if (order.status === 'delivered') {
-    return res.status(400).json({ error: 'Sikeresen kiszállított rendelést már nem lehet törölni vagy módosítani!' });
-  }
-
   const deleted = orders.delete(id);
+  if (isMongoConnected) {
+    OrderModel.deleteOne({ id }).catch((e) => console.error(e));
+  }
   res.json({ deleted: deleted ? 1 : 0 });
 });
 
-// Reports by Date
+// Reports by Date - Budapest Local Time with Midnight Rollover
 function getReportDataForDate(targetDateStr?: string) {
   let targetDate = targetDateStr;
   if (!targetDate) {
-    targetDate = new Date().toISOString().split('T')[0];
+    targetDate = getBudapestDate();
   }
 
-  // Find all orders for this day
+  // Find all orders for this day using Hungarian calendar day
   const dayOrders = Array.from(orders.values()).filter((o) => {
-    const oDate = o.createdAt ? o.createdAt.split('T')[0] : '';
+    const oDate = getOrderBudapestDate(o.createdAt);
     return oDate === targetDate;
   });
 
   const activeOrders = dayOrders.filter((o) => o.status !== 'cancelled');
+  const cancelledOrders = dayOrders.filter((o) => o.status === 'cancelled');
+  const cancelledRevenue = cancelledOrders.reduce((sum, o) => sum + (o.total || 0), 0);
 
   let revenue = 0;
   const byPayment: Record<string, number> = { cash: 0, card: 0, online: 0 };
@@ -1085,9 +1256,11 @@ function getReportDataForDate(targetDateStr?: string) {
 
   return {
     date: targetDate,
+    currentBudapestDate: getBudapestDate(),
     orders: activeOrders.length,
     totalOrdersCount: dayOrders.length,
-    cancelledOrdersCount: dayOrders.length - activeOrders.length,
+    cancelledOrdersCount: cancelledOrders.length,
+    cancelledRevenue,
     revenue,
     byPayment,
     byChannel,
@@ -1105,6 +1278,8 @@ function getReportDataForDate(targetDateStr?: string) {
       status: o.status,
       createdAt: o.createdAt,
       itemsCount: o.items ? o.items.reduce((s, i) => s + (i.qty || 1), 0) : 0,
+      cancelledAt: o.cancelledAt,
+      cancelReason: o.cancelReason,
     })),
   };
 }
@@ -1123,7 +1298,7 @@ app.get('/api/reports/date/:date', requireAdmin, (req, res) => {
 });
 
 app.post('/api/reports/close-day', requireAdmin, (req, res) => {
-  const targetDate = req.body?.date || new Date().toISOString().split('T')[0];
+  const targetDate = req.body?.date || getBudapestDate();
   const report = getReportDataForDate(targetDate);
 
   // Remove existing closing for the same date if re-closing
@@ -1143,6 +1318,9 @@ app.post('/api/reports/close-day', requireAdmin, (req, res) => {
     closedAt: new Date().toISOString(),
   };
   dayCloses.unshift(closeEntry);
+  if (isMongoConnected) {
+    DayCloseModel.findOneAndUpdate({ date: targetDate }, closeEntry, { upsert: true }).catch((e) => console.error(e));
+  }
   res.json(closeEntry);
 });
 
@@ -1156,11 +1334,10 @@ app.get('/api/reports/history', requireAdmin, (req, res) => {
 
 app.get('/api/reports/courier/:courier_id', requireAdmin, (req, res) => {
   const { courier_id } = req.params;
-  const now = new Date();
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const todayBudapestDate = getBudapestDate();
 
   const courierOrders = Array.from(orders.values()).filter(
-    (o) => o.courierId === courier_id && new Date(o.createdAt).getTime() >= startOfDay
+    (o) => o.courierId === courier_id && getOrderBudapestDate(o.createdAt) === todayBudapestDate
   );
 
   const delivered = courierOrders.filter((o) => o.status === 'delivered');
@@ -1182,6 +1359,15 @@ app.get('/api/reports/courier/:courier_id', requireAdmin, (req, res) => {
   });
 });
 
+app.get('/api/time', (req, res) => {
+  const now = new Date();
+  res.json({
+    iso: now.toISOString(),
+    budapestDate: getBudapestDate(now),
+    budapestTime: now.toLocaleTimeString('hu-HU', { timeZone: 'Europe/Budapest' }),
+  });
+});
+
 app.post('/api/seed', (req, res) => {
   seedData();
   res.json({
@@ -1195,9 +1381,50 @@ app.post('/api/seed', (req, res) => {
   });
 });
 
+// Midnight rollover check (Europe/Budapest):
+// Automatically runs every 30 seconds to archive previous day when midnight strikes
+let lastCheckedDate = getBudapestDate();
+setInterval(() => {
+  try {
+    const currentDate = getBudapestDate();
+    if (currentDate !== lastCheckedDate) {
+      console.log(`[Midnight Rollover] Budapest date turned from ${lastCheckedDate} to ${currentDate}!`);
+      const prevDate = lastCheckedDate;
+      lastCheckedDate = currentDate;
+
+      // Auto-archive previous day closing if orders exist and not archived yet
+      const alreadyClosed = dayCloses.some((c) => c.date === prevDate);
+      if (!alreadyClosed) {
+        const prevReport = getReportDataForDate(prevDate);
+        if (prevReport.totalOrdersCount > 0) {
+          const autoCloseEntry: DayClose = {
+            id: crypto.randomUUID(),
+            date: prevDate,
+            orders: prevReport.orders,
+            revenue: prevReport.revenue,
+            byPayment: prevReport.byPayment,
+            byChannel: prevReport.byChannel,
+            byCourier: prevReport.byCourier,
+            closedAt: new Date().toISOString(),
+          };
+          dayCloses.unshift(autoCloseEntry);
+          if (isMongoConnected) {
+            DayCloseModel.findOneAndUpdate({ date: prevDate }, autoCloseEntry, { upsert: true }).catch((e) => console.error(e));
+          }
+          console.log(`[Midnight Rollover] Successfully auto-archived closing for date: ${prevDate}`);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Midnight rollover check error:', err);
+  }
+}, 30000);
+
 // ================= VITE & SPA FALLBACK =================
 
 async function startServer() {
+  await initMongoDatabase();
+
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { LOGO_URL, CATEGORIES, formatFt } from '../../mock/mockData';
 import { useData } from '../../context/DataContext';
 import { useCart } from '../../context/CartContext';
-import { Clock, Bike, Heart, ArrowRight, MapPin, Phone, Flame, Pizza, Beef, Utensils, Wheat, Salad, Popcorn, CakeSlice, CupSoda, Percent, Plus } from 'lucide-react';
+import { Clock, Bike, Heart, ArrowRight, MapPin, Phone, Flame, Pizza, Beef, Utensils, Wheat, Salad, Popcorn, CakeSlice, CupSoda, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 
 const ICONS = { Pizza, Beef, Utensils, Wheat, Salad, Popcorn, CakeSlice, CupSoda };
@@ -127,9 +127,6 @@ const Home = () => {
           <InfoCol icon={Bike} title={restaurantStatus?.alwaysOpen24 ? '0–24 KISZÁLLÍTÁS' : 'GYORS KISZÁLLÍTÁS'} sub={restaurantStatus?.alwaysOpen24 ? 'Éjjel-nappal rendelhetsz!' : 'Frissen kiszállítva'} />
           <InfoCol icon={MapPin} title="ELLENŐRIZD" sub="A szállítási területed" cta={{ to: '/szallitas', label: 'Cím megadása' }} />
           <InfoCol icon={Phone} title="RENDELÉS TELEFONON IS" sub="06 30 728 2289" />
-        </div>
-        <div className="mt-6 flex justify-center gap-3">
-          <span className="inline-flex items-center gap-2 text-xs text-neutral-500"><Percent size={12} className="text-[#d4af37]" /> Akciók, kupon kódok az étlapon</span>
         </div>
       </section>
     </div>

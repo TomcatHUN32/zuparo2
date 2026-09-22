@@ -205,7 +205,8 @@ const CouponsTab = () => {
 
 // ---------------- Day close ----------------
 const DayCloseTab = () => {
-  const todayStr = new Date().toISOString().split('T')[0];
+  const { currentBudapestDate, orders } = useData();
+  const todayStr = currentBudapestDate || new Date().toISOString().split('T')[0];
   const [selectedDate, setSelectedDate] = useState(todayStr);
   const [rep, setRep] = useState(null);
   const [history, setHistory] = useState([]);
@@ -229,7 +230,15 @@ const DayCloseTab = () => {
 
   useEffect(() => {
     loadDateReport(selectedDate);
-  }, []);
+  }, [orders]);
+
+  // When midnight arrives and currentBudapestDate updates, automatically jump to the new day
+  useEffect(() => {
+    if (currentBudapestDate && currentBudapestDate !== selectedDate) {
+      setSelectedDate(currentBudapestDate);
+      loadDateReport(currentBudapestDate);
+    }
+  }, [currentBudapestDate]);
 
   const handleDateChange = (date) => {
     setSelectedDate(date);
@@ -369,11 +378,22 @@ const DayCloseTab = () => {
         <>
           {/* Main KPI Stats */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Stat label={`Rendelések (${selectedDate})`} value={`${rep.orders} db`} />
-            <Stat label="Napi forgalom" value={formatFt(rep.revenue)} />
+            <Stat label={`Teljesített (${selectedDate})`} value={`${rep.orders} db`} />
+            <Stat label="Nettó napi forgalom" value={formatFt(rep.revenue)} />
             <Stat label="Készpénzes forgalom" value={formatFt(rep.byPayment?.cash || 0)} />
             <Stat label="Kártya + Online forgalom" value={formatFt((rep.byPayment?.card || 0) + (rep.byPayment?.online || 0))} />
           </div>
+
+          {(rep.cancelledOrdersCount || 0) > 0 && (
+            <div className="bg-rose-50 border border-rose-200 rounded-xl p-3.5 flex items-center justify-between text-xs text-rose-800">
+              <span className="font-semibold">
+                ⚠️ Ezen a napon <strong>{rep.cancelledOrdersCount} db</strong> rendelés lett sztornózva (összesen <strong>{formatFt(rep.cancelledRevenue || 0)}</strong> értékben).
+              </span>
+              <span className="text-[11px] bg-white px-2 py-0.5 rounded border border-rose-200 font-bold text-rose-700">
+                Levonva a nettó forgalomból
+              </span>
+            </div>
+          )}
 
           {/* Detailed breakdowns */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

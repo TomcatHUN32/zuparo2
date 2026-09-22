@@ -12,6 +12,10 @@ const Orders = () => {
   const [editing, setEditing] = useState(null);
   const [expanded, setExpanded] = useState({});
   const [printModalOrder, setPrintModalOrder] = useState(null);
+  const [stornoModalOrder, setStornoModalOrder] = useState(null);
+  const [stornoReason, setStornoReason] = useState('Vendég lemondta');
+  const [customStornoReason, setCustomStornoReason] = useState('');
+  const [stornoLoading, setStornoLoading] = useState(false);
 
   const toggle = (id) => setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
 
@@ -64,16 +68,27 @@ const Orders = () => {
     );
   };
 
-  const cancel = async (o) => {
-    if (o.status === 'delivered') {
-      return toast.error('A kiszállított rendelést már nem lehet sztornózni, semmit nem lehet vele csinálni!');
-    }
-    if (!window.confirm(`Biztosan sztornózod a(z) ${o.id} rendelést? Az alapanyagok automatikusan visszakerülnek a raktárkészletbe.`)) return;
+  const confirmStorno = (o) => {
+    setStornoModalOrder(o);
+    setStornoReason('Vendég lemondta');
+    setCustomStornoReason('');
+  };
+
+  const handleExecuteStorno = async () => {
+    if (!stornoModalOrder) return;
+    const finalReason = stornoReason === 'Egyéb indok...' ? (customStornoReason.trim() || 'Egyéb indok') : stornoReason;
+    setStornoLoading(true);
     try {
-      await updateOrder(o.id, { status: 'cancelled' });
-      toast.success('Rendelés sikeresen sztornózva! Az alapanyagok visszakerültek a készletbe.');
+      await updateOrder(stornoModalOrder.id, {
+        status: 'cancelled',
+        cancelReason: finalReason,
+      });
+      toast.success(`A(z) ${stornoModalOrder.id} rendelés sikeresen sztornózva! Az alapanyagok visszakerültek a raktárba.`);
+      setStornoModalOrder(null);
     } catch (err) {
       toast.error(err.response?.data?.error || 'Hiba a sztornózás során');
+    } finally {
+      setStornoLoading(false);
     }
   };
 
@@ -181,19 +196,14 @@ const Orders = () => {
                   <Printer size={13} /> Konyha blokk
                 </button>
 
-                {/* DELIVERED ORDER PROTECTION: Once delivered, NO cancellation, NO edits, nothing can be done! */}
-                {o.status === 'delivered' ? (
-                  <span className="text-xs px-3 py-1.5 rounded-md bg-neutral-100 text-neutral-500 border border-neutral-300 inline-flex items-center gap-1.5 font-bold select-none cursor-not-allowed">
-                    <Lock size={13} className="text-neutral-500" /> Kiszállítva (lezárva – sem módosítani, sem sztornózni nem lehet!)
-                  </span>
-                ) : o.status === 'cancelled' ? (
+                {o.status === 'cancelled' ? (
                   <>
                     <span className="text-xs px-2.5 py-1.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200 inline-flex items-center gap-1 font-bold select-none">
-                      <XCircle size={13} /> Sztornózva
+                      <XCircle size={13} /> Sztornózva {o.cancelReason ? `(${o.cancelReason})` : ''}
                     </span>
                     <button
                       onClick={async () => {
-                        if (!window.confirm(`Biztosan törölni szeretnéd a(z) ${o.id} sztornózott rendelést?`)) return;
+                        if (!window.confirm(`Biztosan véglegesen törölni szeretnéd a(z) ${o.id} sztornózott rendelést?`)) return;
                         await deleteOrder(o.id);
                         toast.success('Rendelés törölve');
                       }}
@@ -204,17 +214,24 @@ const Orders = () => {
                   </>
                 ) : (
                   <>
-                    {/* Active orders (new, preparing, ready, on_route) can be edited and CANCELLED (sztornó) until delivered! */}
+                    {o.status === 'delivered' ? (
+                      <span className="text-xs px-2.5 py-1.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 inline-flex items-center gap-1 font-bold select-none">
+                        <CheckCircle2 size={13} className="text-emerald-600" /> Kiszállítva
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => setEditing(o.id)}
+                        className="text-xs px-2.5 py-1.5 rounded-md bg-white hover:bg-neutral-50 text-neutral-700 border border-neutral-200 inline-flex items-center gap-1 font-medium"
+                      >
+                        <Pencil size={12} /> Rendelés módosítása
+                      </button>
+                    )}
+
+                    {/* Sztornó button always available for cashier/admin */}
                     <button
-                      onClick={() => setEditing(o.id)}
-                      className="text-xs px-2.5 py-1.5 rounded-md bg-white hover:bg-neutral-50 text-neutral-700 border border-neutral-200 inline-flex items-center gap-1 font-medium"
-                    >
-                      <Pencil size={12} /> Rendelés módosítása
-                    </button>
-                    <button
-                      onClick={() => cancel(o)}
-                      className="text-xs px-2.5 py-1.5 rounded-md bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 inline-flex items-center gap-1 font-bold transition-colors"
-                      title="Sztornózás (csak amíg nincs kiszállítva)"
+                      onClick={() => confirmStorno(o)}
+                      className="text-xs px-2.5 py-1.5 rounded-md bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 inline-flex items-center gap-1 font-bold transition-colors cursor-pointer"
+                      title="Rendelés sztornózása"
                     >
                       <XCircle size={12} /> Sztornó
                     </button>
@@ -275,6 +292,93 @@ const Orders = () => {
         isOpen={Boolean(printModalOrder)}
         onClose={() => setPrintModalOrder(null)}
       />
+
+      {/* Storno Confirmation Modal */}
+      {stornoModalOrder && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full overflow-hidden shadow-2xl border border-neutral-200">
+            <div className="px-6 py-4 bg-rose-50 border-b border-rose-200 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-rose-800 font-bold text-base">
+                <XCircle size={20} className="text-rose-600" />
+                <span>Rendelés sztornózása</span>
+              </div>
+              <button
+                onClick={() => setStornoModalOrder(null)}
+                className="text-neutral-400 hover:text-neutral-700 rounded-lg p-1"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="bg-neutral-50 p-3.5 rounded-xl border border-neutral-200 text-sm space-y-1.5">
+                <div className="flex justify-between">
+                  <span className="text-neutral-500">Rendelésszám:</span>
+                  <span className="font-bold text-neutral-900">{stornoModalOrder.id}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-neutral-500">Megrendelő:</span>
+                  <span className="font-semibold text-neutral-800">{stornoModalOrder.customerName || 'Névtelen'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-neutral-500">Végösszeg:</span>
+                  <span className="font-extrabold text-neutral-900">{formatFt(stornoModalOrder.total)}</span>
+                </div>
+              </div>
+
+              <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800 leading-relaxed">
+                ℹ️ <strong>Figyelem:</strong> A sztornózással a rendelés érvénytelen (sztornózott) státuszba kerül. A felhasznált receptek alapanyagai automatikusan visszakerülnek a raktárba, az összeg pedig törlődik a mai bevételből.
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-neutral-700 mb-1.5">Sztornózás indoka:</label>
+                <select
+                  value={stornoReason}
+                  onChange={(e) => setStornoReason(e.target.value)}
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-neutral-300 bg-white focus:outline-none focus:ring-2 focus:ring-rose-500"
+                >
+                  <option value="Vendég lemondta">Vendég lemondta telefonon</option>
+                  <option value="Nem vette át a futártól / nem nyitott ajtót">Nem vette át a futártól / nem nyitott ajtót</option>
+                  <option value="Téves / teszt rendelés">Téves / teszt rendelés</option>
+                  <option value="Konyhai hiba / elfogyott alapanyag">Konyhai hiba / elfogyott alapanyag</option>
+                  <option value="Hibás cím vagy elérhetetlen telefon">Hibás cím vagy elérhetetlen telefon</option>
+                  <option value="Egyéb indok...">Egyéb indok...</option>
+                </select>
+
+                {stornoReason === 'Egyéb indok...' && (
+                  <input
+                    type="text"
+                    placeholder="Írd be a sztornózás konkrét okát..."
+                    value={customStornoReason}
+                    onChange={(e) => setCustomStornoReason(e.target.value)}
+                    className="mt-2 w-full px-3 py-2 text-sm rounded-lg border border-neutral-300 focus:outline-none focus:ring-2 focus:ring-rose-500"
+                  />
+                )}
+              </div>
+            </div>
+
+            <div className="px-6 py-4 bg-neutral-50 border-t border-neutral-200 flex justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setStornoModalOrder(null)}
+                disabled={stornoLoading}
+                className="px-4 py-2 rounded-lg border border-neutral-300 text-neutral-700 text-sm font-semibold hover:bg-neutral-100 transition-colors cursor-pointer"
+              >
+                Mégse
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteStorno}
+                disabled={stornoLoading}
+                className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-sm font-bold shadow-xs inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <XCircle size={15} />
+                {stornoLoading ? 'Sztornózás folyamatban...' : 'Rendelés sztornózása'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {editingOrder && (
         <EditModal order={editingOrder} menu={menu} onClose={() => setEditing(null)} onSave={async (patch) => { await updateOrder(editingOrder.id, patch); setEditing(null); toast.success('Rendelés módosítva'); }} />

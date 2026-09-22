@@ -30,6 +30,13 @@ export const DataProvider = ({ children }) => {
   const [loaded, setLoaded] = useState(false);
   const [soundMuted, setSoundMutedState] = useState(isAudioMuted());
   const [lastOnlineOrder, setLastOnlineOrder] = useState(null);
+  const [currentBudapestDate, setCurrentBudapestDate] = useState(() => {
+    try {
+      return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Budapest' }).format(new Date());
+    } catch {
+      return new Date().toISOString().split('T')[0];
+    }
+  });
 
   // Ref to track seen orders to detect fresh incoming ones
   const seenOrderIdsRef = useRef(new Set());
@@ -131,6 +138,28 @@ export const DataProvider = ({ children }) => {
 
     return () => clearInterval(interval);
   }, [ready, user]);
+
+  // Midnight rollover monitor (Europe/Budapest): checks every 10 seconds if calendar date flipped
+  useEffect(() => {
+    const timer = setInterval(() => {
+      try {
+        const nowBudapest = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Budapest' }).format(new Date());
+        if (nowBudapest !== currentBudapestDate) {
+          console.log(`[Midnight Rollover Frontend] Date changed from ${currentBudapestDate} to ${nowBudapest}!`);
+          setCurrentBudapestDate(nowBudapest);
+          if (user?.role === 'admin') {
+            loadAdmin();
+            toast.info(`🌙 Éjfél elérkezett! Az adminisztráció automatikusan átváltott a mai napra (${nowBudapest}).`, {
+              duration: 8000,
+            });
+          }
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }, 10000);
+    return () => clearInterval(timer);
+  }, [currentBudapestDate, user, loadAdmin]);
 
   const toggleMute = () => {
     const nextVal = toggleSoundMute();
@@ -321,6 +350,7 @@ export const DataProvider = ({ children }) => {
       soundMuted, toggleSoundMute: toggleMute, testSound: handleTestSound,
       lastOnlineOrder,
       restaurantStatus, updateRestaurantStatus, toggleRestaurantOpen, uploadFoodImage,
+      currentBudapestDate,
       reloadPublic: loadPublic, reloadAdmin: loadAdmin,
     }}>{children}</DataContext.Provider>
   );

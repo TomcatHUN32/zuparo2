@@ -1,14 +1,20 @@
-// Web Audio API sound alert service for online orders
-// Provides high-reliability audio notifications across all browsers without external asset dependencies.
+// Web Audio API sound alert service for ZUPARO online orders
+// Delivers a high-clarity acoustic "csilingelő" (crystal service chime / bell)
+// or "csipogó" (pager beep) across all browsers with zero external audio assets.
 
 let audioCtx = null;
 let isMuted = false;
+let currentSoundType = 'chime'; // 'chime' (csilingelő) or 'beep' (csipogó)
 
-// Check localStorage
+// Restore user preferences
 try {
-  const saved = localStorage.getItem('zuparo_sound_muted');
-  if (saved !== null) {
-    isMuted = saved === 'true';
+  const savedMute = localStorage.getItem('zuparo_sound_muted');
+  if (savedMute !== null) {
+    isMuted = savedMute === 'true';
+  }
+  const savedType = localStorage.getItem('zuparo_sound_type');
+  if (savedType === 'beep' || savedType === 'chime') {
+    currentSoundType = savedType;
   }
 } catch (e) {
   // ignore
@@ -36,37 +42,90 @@ function getAudioContext() {
 }
 
 /**
- * Plays a single chime tone with smooth envelope
+ * Creates an authentic resonant bell / crystal chime strike ("csilingelés")
+ * Combines fundamental tone with inharmonic bell overtones for realistic metallic shimmer.
  */
-function playTone(ctx, freq, startTime, duration = 0.45, gainLevel = 0.25) {
+function playChimeBell(ctx, baseFreq, startTime, duration = 1.2, volume = 0.35) {
   try {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
+    // 1. Primary fundamental
+    const osc1 = ctx.createOscillator();
+    const gain1 = ctx.createGain();
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(baseFreq, startTime);
 
-    // Use a blend of sine and triangle for a pleasant acoustic bell tone
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(freq, startTime);
+    gain1.gain.setValueAtTime(0.0001, startTime);
+    gain1.gain.exponentialRampToValueAtTime(volume, startTime + 0.008);
+    gain1.gain.exponentialRampToValueAtTime(volume * 0.4, startTime + 0.15);
+    gain1.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
 
-    // Exponential decay envelope
-    gain.gain.setValueAtTime(0.001, startTime);
-    gain.gain.exponentialRampToValueAtTime(gainLevel, startTime + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+    osc1.connect(gain1);
+    gain1.connect(ctx.destination);
+    osc1.start(startTime);
+    osc1.stop(startTime + duration);
 
-    osc.connect(gain);
-    gain.connect(ctx.destination);
+    // 2. High crystal shimmer overtone (~2.75x)
+    const osc2 = ctx.createOscillator();
+    const gain2 = ctx.createGain();
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(baseFreq * 2.756, startTime);
 
-    osc.start(startTime);
-    osc.stop(startTime + duration);
+    gain2.gain.setValueAtTime(0.0001, startTime);
+    gain2.gain.exponentialRampToValueAtTime(volume * 0.35, startTime + 0.006);
+    gain2.gain.exponentialRampToValueAtTime(0.0001, startTime + duration * 0.6);
+
+    osc2.connect(gain2);
+    gain2.connect(ctx.destination);
+    osc2.start(startTime);
+    osc2.stop(startTime + duration * 0.6);
+
+    // 3. Ultra-high sparkle / strike harmonic (~4.1x)
+    const osc3 = ctx.createOscillator();
+    const gain3 = ctx.createGain();
+    osc3.type = 'triangle';
+    osc3.frequency.setValueAtTime(baseFreq * 4.07, startTime);
+
+    gain3.gain.setValueAtTime(0.0001, startTime);
+    gain3.gain.exponentialRampToValueAtTime(volume * 0.2, startTime + 0.003);
+    gain3.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.18);
+
+    osc3.connect(gain3);
+    gain3.connect(ctx.destination);
+    osc3.start(startTime);
+    osc3.stop(startTime + 0.2);
   } catch (err) {
-    console.warn('Audio tone play error', err);
+    console.warn('Chime bell error', err);
   }
 }
 
 /**
- * Restaurant kitchen order chime:
- * 3-note ascending chime repeated twice (E5 -> G#5 -> B5, then higher octave or repeat)
+ * Electronic kitchen pager beep (csipogó)
  */
-export function playOnlineOrderSound() {
+function playDigitalBeep(ctx, freq, startTime, duration = 0.12, volume = 0.3) {
+  try {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(freq, startTime);
+
+    gain.gain.setValueAtTime(0.001, startTime);
+    gain.gain.linearRampToValueAtTime(volume, startTime + 0.01);
+    gain.gain.setValueAtTime(volume, startTime + duration - 0.02);
+    gain.gain.linearRampToValueAtTime(0.0001, startTime + duration);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(startTime);
+    osc.stop(startTime + duration);
+  } catch (err) {
+    console.warn('Digital beep error', err);
+  }
+}
+
+/**
+ * Main online order notification sound
+ * Plays either melodic crystal chime ("csilingelő") or digital pager ("csipogó")
+ */
+export function playOnlineOrderSound(overrideType) {
   if (isMuted) return;
 
   try {
@@ -77,26 +136,39 @@ export function playOnlineOrderSound() {
       ctx.resume().catch(() => {});
     }
 
-    const now = ctx.currentTime + 0.05;
+    const type = overrideType || currentSoundType;
+    const now = ctx.currentTime + 0.04;
 
-    // First sequence (Ding - Ding - Dong)
-    playTone(ctx, 659.25, now + 0.00, 0.4, 0.30); // E5
-    playTone(ctx, 830.61, now + 0.18, 0.4, 0.32); // G#5
-    playTone(ctx, 1046.50, now + 0.38, 0.6, 0.35); // C6
+    if (type === 'beep') {
+      // 3 crisp high-pitch kitchen beeps: Beep - Beep - Beep!
+      playDigitalBeep(ctx, 1760, now + 0.00, 0.12, 0.32);
+      playDigitalBeep(ctx, 1760, now + 0.18, 0.12, 0.32);
+      playDigitalBeep(ctx, 2349.32, now + 0.36, 0.20, 0.36);
 
-    // Second emphasis chime after 0.75s
-    playTone(ctx, 830.61, now + 0.85, 0.4, 0.30); // G#5
-    playTone(ctx, 1046.50, now + 1.05, 0.4, 0.32); // C6
-    playTone(ctx, 1318.51, now + 1.25, 0.8, 0.38); // E6
+      // Repeat second cycle after 0.5s pause
+      playDigitalBeep(ctx, 1760, now + 0.70, 0.12, 0.32);
+      playDigitalBeep(ctx, 1760, now + 0.88, 0.12, 0.32);
+      playDigitalBeep(ctx, 2349.32, now + 1.06, 0.25, 0.36);
+    } else {
+      // Default: "Csilingelő" (Crystal Service Chime - Csing-Csing-Dong! ✨)
+      // G6 (1568Hz) -> C7 (2093Hz) -> E7 (2637Hz) with sparkling overtones
+      playChimeBell(ctx, 1318.51, now + 0.00, 0.9, 0.32); // E6
+      playChimeBell(ctx, 1567.98, now + 0.22, 1.0, 0.35); // G6
+      playChimeBell(ctx, 2093.00, now + 0.46, 1.4, 0.40); // C7 (High crystal peak)
+
+      // Echo shimmer
+      playChimeBell(ctx, 1567.98, now + 0.95, 0.8, 0.28); // G6 echo
+      playChimeBell(ctx, 2093.00, now + 1.15, 1.5, 0.38); // C7 sustained bell
+    }
   } catch (e) {
-    console.warn('Could not play order chime:', e);
+    console.warn('Could not play order notification:', e);
   }
 }
 
 /**
- * Quick single test sound to test volume and activate browser AudioContext
+ * Single test sound
  */
-export function testSound() {
+export function testSound(soundType) {
   try {
     const ctx = getAudioContext();
     if (!ctx) return false;
@@ -105,9 +177,17 @@ export function testSound() {
       ctx.resume().catch(() => {});
     }
 
-    const now = ctx.currentTime + 0.05;
-    playTone(ctx, 880, now, 0.35, 0.3); // A5
-    playTone(ctx, 1174.66, now + 0.2, 0.55, 0.35); // D6
+    const type = soundType || currentSoundType;
+    const now = ctx.currentTime + 0.03;
+
+    if (type === 'beep') {
+      playDigitalBeep(ctx, 1760, now, 0.12, 0.32);
+      playDigitalBeep(ctx, 2349.32, now + 0.18, 0.22, 0.36);
+    } else {
+      // Single crystal bell strike
+      playChimeBell(ctx, 1567.98, now, 0.8, 0.35);
+      playChimeBell(ctx, 2093.00, now + 0.20, 1.2, 0.40);
+    }
     return true;
   } catch (e) {
     console.warn('Test sound error:', e);
@@ -137,4 +217,21 @@ export function setAudioMuted(val) {
     // ignore
   }
   return isMuted;
+}
+
+export function getSoundType() {
+  return currentSoundType;
+}
+
+export function setSoundType(type) {
+  if (type === 'chime' || type === 'beep') {
+    currentSoundType = type;
+    try {
+      localStorage.setItem('zuparo_sound_type', type);
+    } catch (e) {
+      // ignore
+    }
+    testSound(type);
+  }
+  return currentSoundType;
 }
