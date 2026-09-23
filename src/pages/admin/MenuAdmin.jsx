@@ -40,6 +40,23 @@ const empty = {
   image: '',
 };
 
+const normalizeCatMatch = (itemCat, targetCatId, allCategories = []) => {
+  if (!itemCat || !targetCatId) return false;
+  if (targetCatId === 'all') return true;
+  const ic = String(itemCat).toLowerCase().trim();
+  const tc = String(targetCatId).toLowerCase().trim();
+  if (ic === tc) return true;
+  if (Array.isArray(allCategories) && allCategories.length > 0) {
+    const catObj = allCategories.find((c) => c?.id?.toLowerCase() === tc || c?.name?.toLowerCase() === tc);
+    if (catObj) {
+      if (ic === catObj.id?.toLowerCase() || ic === catObj.name?.toLowerCase()) return true;
+    }
+  }
+  const stripAccents = (s) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (stripAccents(ic) === stripAccents(tc)) return true;
+  return false;
+};
+
 const MenuAdmin = () => {
   const {
     menu,
@@ -104,7 +121,10 @@ const MenuAdmin = () => {
   };
 
   const handleDeleteCategory = async (id, name) => {
-    const dishesInCat = menu.filter((m) => normalizeCatMatch(m.category, id) || normalizeCatMatch(m.category, name));
+    const dishesInCat = menu.filter((m) =>
+      normalizeCatMatch(m.category, id, allCategories) ||
+      normalizeCatMatch(m.category, name, allCategories)
+    );
     let confirmMsg = `Biztosan törölni szeretnéd a(z) "${name}" kategóriát?`;
     if (dishesInCat.length > 0) {
       confirmMsg = `Figyelem! Ebben a kategóriában (${name}) jelenleg ${dishesInCat.length} db étel van!\n\nBiztosan törlöd a kategóriát?`;
@@ -116,7 +136,10 @@ const MenuAdmin = () => {
       await deleteCategory(id, name);
       // Clean up local menu items that had this category
       menu.forEach((m) => {
-        if (normalizeCatMatch(m.category, id) || normalizeCatMatch(m.category, name)) {
+        if (
+          normalizeCatMatch(m.category, id, allCategories) ||
+          normalizeCatMatch(m.category, name, allCategories)
+        ) {
           updateMenuItem(m.id, { category: 'egyeb' }).catch(() => {});
         }
       });
@@ -199,22 +222,9 @@ const MenuAdmin = () => {
     return list;
   }, [currentCategories, menu]);
 
-  const normalizeCatMatch = (itemCat, targetCatId) => {
-    if (!itemCat || !targetCatId) return false;
-    if (targetCatId === 'all') return true;
-    const ic = String(itemCat).toLowerCase().trim();
-    const tc = String(targetCatId).toLowerCase().trim();
-    if (ic === tc) return true;
-    const catObj = allCategories.find((c) => c.id.toLowerCase() === tc || c.name.toLowerCase() === tc);
-    if (catObj) {
-      if (ic === catObj.id.toLowerCase() || ic === catObj.name.toLowerCase()) return true;
-    }
-    const stripAccents = (s) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    if (stripAccents(ic) === stripAccents(tc)) return true;
-    return false;
-  };
+  const isCatMatch = (itemCat, targetCatId) => normalizeCatMatch(itemCat, targetCatId, allCategories);
 
-  const items = menu.filter((m) => cat === 'all' ? true : normalizeCatMatch(m.category, cat));
+  const items = menu.filter((m) => cat === 'all' ? true : isCatMatch(m.category, cat));
   const recipeItem = menu.find((m) => m.id === recipeFor);
 
   // Multi-selection state & batch action handlers
@@ -313,7 +323,7 @@ const MenuAdmin = () => {
           </button>
 
           {allCategories.map((c) => {
-            const count = menu.filter((m) => normalizeCatMatch(m.category, c.id)).length;
+            const count = menu.filter((m) => isCatMatch(m.category, c.id)).length;
             const isSelected = cat === c.id;
             return (
               <button
@@ -797,7 +807,7 @@ const MenuAdmin = () => {
                     </div>
                     {cat === 'all' && (
                       <span className="inline-block mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-neutral-100 text-neutral-600 border border-neutral-200">
-                        {allCategories.find((c) => normalizeCatMatch(m.category, c.id))?.name || m.category}
+                        {allCategories.find((c) => isCatMatch(m.category, c.id))?.name || m.category}
                       </span>
                     )}
                   </td>
@@ -915,6 +925,7 @@ const MenuAdmin = () => {
       {showCategoryModal && (
         <CategoryModal
           categories={currentCategories}
+          allCategories={allCategories}
           menu={menu}
           onClose={() => {
             setShowCategoryModal(false);
@@ -939,6 +950,7 @@ const MenuAdmin = () => {
 
 const CategoryModal = ({
   categories,
+  allCategories = [],
   menu,
   onClose,
   newCatName,
@@ -1007,7 +1019,10 @@ const CategoryModal = ({
             <div className="divide-y divide-neutral-100 border border-neutral-200 rounded-xl overflow-hidden bg-white shadow-xs">
               {categories.map((c, idx) => {
                 const catId = c.id || c._id || c.name;
-                const dishCount = menu.filter((m) => normalizeCatMatch(m.category, catId) || normalizeCatMatch(m.category, c.name)).length;
+                const dishCount = menu.filter((m) =>
+                  normalizeCatMatch(m.category, catId, allCategories) ||
+                  normalizeCatMatch(m.category, c.name, allCategories)
+                ).length;
                 const isEditing = editingCatId === catId;
 
                 return (
