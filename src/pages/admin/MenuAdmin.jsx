@@ -69,7 +69,8 @@ const MenuAdmin = () => {
     categories,
     addCategory,
     updateCategory,
-    deleteCategory
+    deleteCategory,
+    reloadPublic,
   } = useData();
   const currentCategories = Array.isArray(categories) ? categories : [];
   const [cat, setCat] = useState('all');
@@ -94,9 +95,10 @@ const MenuAdmin = () => {
     setCatLoading(true);
     try {
       const created = await addCategory({ name: newCatName.trim() });
+      if (reloadPublic) await reloadPublic();
       setNewCatName('');
-      setCat(created.id);
-      setDraft((prev) => ({ ...prev, category: created.id }));
+      setCat(created.id || created.name);
+      setDraft((prev) => ({ ...prev, category: created.id || created.name }));
       toast.success(`"${created.name}" kategória sikeresen létrehozva!`);
     } catch (err) {
       toast.error('Hiba a kategória létrehozásakor');
@@ -107,11 +109,22 @@ const MenuAdmin = () => {
 
   const handleUpdateCategory = async (id) => {
     if (!editingCatName.trim()) return toast.error('A kategória neve nem lehet üres!');
+    const newName = editingCatName.trim();
     setCatLoading(true);
     try {
-      await updateCategory(id, { name: editingCatName.trim() });
+      await updateCategory(id, { name: newName });
+      const oldCat = allCategories.find((c) => c.id === id)?.name || id;
+      menu.forEach((m) => {
+        if (isCatMatch(m.category, id) || isCatMatch(m.category, oldCat)) {
+          updateMenuItem(m.id, { category: newName }).catch(() => {});
+        }
+      });
+      if (reloadPublic) await reloadPublic();
       setEditingCatId(null);
       setEditingCatName('');
+      if (cat === id || cat === oldCat) {
+        setCat(newName);
+      }
       toast.success('Kategória sikeresen átnevezve!');
     } catch (err) {
       toast.error('Hiba a kategória módosításakor');
@@ -127,7 +140,7 @@ const MenuAdmin = () => {
     );
     let confirmMsg = `Biztosan törölni szeretnéd a(z) "${name}" kategóriát?`;
     if (dishesInCat.length > 0) {
-      confirmMsg = `Figyelem! Ebben a kategóriában (${name}) jelenleg ${dishesInCat.length} db étel van!\n\nBiztosan törlöd a kategóriát?`;
+      confirmMsg = `Figyelem! Ebben a kategóriában (${name}) jelenleg ${dishesInCat.length} db étel van!\n\nBiztosan törlöd a kategóriát? Az ételek az "egyeb" kategóriába kerülnek át.`;
     }
     if (!window.confirm(confirmMsg)) return;
 
@@ -143,6 +156,7 @@ const MenuAdmin = () => {
           updateMenuItem(m.id, { category: 'egyeb' }).catch(() => {});
         }
       });
+      if (reloadPublic) await reloadPublic();
       if (cat === id || cat === name) {
         setCat('all');
         setDraft((prev) => ({ ...prev, category: '' }));
@@ -924,7 +938,7 @@ const MenuAdmin = () => {
 
       {showCategoryModal && (
         <CategoryModal
-          categories={currentCategories}
+          categories={allCategories.filter((c) => c.id !== 'all')}
           allCategories={allCategories}
           menu={menu}
           onClose={() => {

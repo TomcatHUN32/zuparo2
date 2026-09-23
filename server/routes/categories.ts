@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import mongoose from 'mongoose';
-import { CategoryModel } from '../../serverModels';
+import { CategoryModel, MenuItemModel } from '../../serverModels';
 
 const router = Router();
 
@@ -18,7 +18,71 @@ const DEFAULT_CATEGORIES = [
 router.get('/', async (_req: Request, res: Response) => {
   try {
     const cats = await CategoryModel.find({}).sort({ order: 1, name: 1 }).lean();
-    // Do NOT auto-reseed deleted categories! Return whatever exists in the database.
+    
+    // Also discover any category that exists on menu items (e.g. Hamburger, Gyros Tálak/Pita, Üdítők, Lángos, Köret, Box, egyeb)
+    const existingCatKeys = new Set(
+      cats.flatMap((c: any) => [
+        (c.id || '').toLowerCase().trim(),
+        (c.name || '').toLowerCase().trim(),
+      ]).filter(Boolean)
+    );
+
+    const discoveredCategories: string[] = [];
+    try {
+      const distinctMenuItems = await MenuItemModel.distinct('category').catch(() => []);
+      discoveredCategories.push(...distinctMenuItems);
+    } catch {}
+
+    if (mongoose.connection?.db) {
+      try {
+        const distinctProducts = await mongoose.connection.db.collection('products').distinct('category').catch(() => []);
+        discoveredCategories.push(...distinctProducts);
+      } catch {}
+    }
+
+    // Auto-register any category used in products that is not yet in CategoryModel
+    for (const rawCat of discoveredCategories) {
+      if (!rawCat || typeof rawCat !== 'string') continue;
+      const trimmed = rawCat.trim();
+      if (!trimmed || trimmed === 'all') continue;
+      const lower = trimmed.toLowerCase();
+      if (!existingCatKeys.has(lower)) {
+        existingCatKeys.add(lower);
+        // create clean slug id
+        const slugId = trimmed
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-z0-9]/g, '-')
+          .replace(/-+/g, '-')
+          .replace(/^-|-$/g, '') || `cat-${Date.now()}`;
+        
+        let icon = 'Utensils';
+        if (lower.includes('hamburg')) icon = 'Beef';
+        else if (lower.includes('gyros') || lower.includes('pita')) icon = 'Utensils';
+        else if (lower.includes('udit') || lower.includes('ital')) icon = 'CupSoda';
+        else if (lower.includes('langos')) icon = 'Flame';
+        else if (lower.includes('koret') || lower.includes('salat')) icon = 'Salad';
+        else if (lower.includes('box')) icon = 'Package';
+        else if (lower.includes('pizza')) icon = 'Pizza';
+        else if (lower.includes('desszert') || lower.includes('edess')) icon = 'CakeSlice';
+
+        try {
+          const created = await CategoryModel.findOneAndUpdate(
+            { $or: [{ id: slugId }, { name: trimmed }] },
+            { id: slugId, name: trimmed, icon, order: cats.length + 10 },
+            { upsert: true, new: true }
+          ).lean();
+
+          if (created) {
+            cats.push(created);
+          }
+        } catch (e) {
+          console.warn('Error auto-registering category:', trimmed, e);
+        }
+      }
+    }
+
     const mapped = (cats || []).map((c: any) => ({
       ...c,
       id: c.id || c._id?.toString(),
@@ -102,6 +166,21 @@ router.put('/:id', async (req: Request, res: Response) => {
         icon: icon || 'Utensils',
         order: Number(order) || 0,
       });
+    }
+
+    if (name) {
+      const newName = name.trim();
+      const oldKeys = [id, decodeURIComponent(id), updated?.name].filter(Boolean);
+      await MenuItemModel.updateMany(
+        { category: { $in: oldKeys } },
+        { $set: { category: newName } }
+      ).catch(() => {});
+      if (mongoose.connection?.db) {
+        await mongoose.connection.db.collection('products').updateMany(
+          { category: { $in: oldKeys } },
+          { $set: { category: newName } }
+        ).catch(() => {});
+      }
     }
 
     res.json({

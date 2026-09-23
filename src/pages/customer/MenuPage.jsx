@@ -18,19 +18,46 @@ const MenuPage = () => {
   // Dynamic categories collected from database categories + active menu items
   const dynamicCategories = React.useMemo(() => {
     const list = [{ id: 'all', name: 'Összes étel' }];
-    const seen = new Set();
-    const sourceCats = categories && categories.length > 0 ? categories : CATEGORIES;
-    sourceCats.forEach((c) => {
-      seen.add(c.id.toLowerCase());
-      list.push({ id: c.id, name: c.name });
-    });
+    const seen = new Set(['all']);
+
+    // 1. Categories from database / context
+    if (Array.isArray(categories) && categories.length > 0) {
+      categories.forEach((c) => {
+        if (c && c.name) {
+          const lowerId = (c.id || '').toLowerCase();
+          const lowerName = c.name.toLowerCase();
+          if (!seen.has(lowerId) && !seen.has(lowerName)) {
+            seen.add(lowerId);
+            seen.add(lowerName);
+            list.push({ id: c.id || c.name, name: c.name });
+          }
+        }
+      });
+    }
+
+    // 2. Categories found in actual menu items
     menu.forEach((m) => {
-      if (m.category && !seen.has(m.category.toLowerCase())) {
-        seen.add(m.category.toLowerCase());
-        list.push({ id: m.category, name: m.category });
+      if (m.category) {
+        const lower = m.category.toLowerCase();
+        if (!seen.has(lower)) {
+          seen.add(lower);
+          list.push({ id: m.category, name: m.category });
+        }
       }
     });
-    return list;
+
+    // 3. Only keep categories that either have dishes in the menu, or is 'all'
+    const availableCategories = list.filter((c) => {
+      if (c.id === 'all') return true;
+      return menu.some((m) => {
+        const ic = String(m.category || '').toLowerCase().trim();
+        const tc = String(c.id || '').toLowerCase().trim();
+        const tn = String(c.name || '').toLowerCase().trim();
+        return ic === tc || ic === tn;
+      });
+    });
+
+    return availableCategories.length > 1 ? availableCategories : list;
   }, [menu, categories]);
 
   const normalizeCatMatch = (itemCat, targetCatId) => {
@@ -44,10 +71,6 @@ const MenuPage = () => {
     }
     const stripAccents = (s) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     if (stripAccents(ic) === stripAccents(tc)) return true;
-    if (tc.includes('pizza') && ic.includes('pizza')) return true;
-    if ((tc.includes('hazi') || tc.includes('hazias')) && (ic.includes('hazi') || ic.includes('hazias'))) return true;
-    if ((tc.includes('sult') || tc.includes('sült')) && (ic.includes('sult') || ic.includes('sült'))) return true;
-    if ((tc.includes('ital') || tc.includes('udit')) && (ic.includes('ital') || ic.includes('udit'))) return true;
     return false;
   };
 

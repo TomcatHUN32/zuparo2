@@ -73,18 +73,42 @@ const NewOrder = () => {
   const allCategories = useMemo(() => {
     const list = [{ id: 'all', name: 'Összes termék' }];
     const seen = new Set(['all']);
-    const sourceCats = categories && categories.length > 0 ? categories : CATEGORIES;
-    sourceCats.forEach((c) => {
-      seen.add(c.id.toLowerCase());
-      list.push({ id: c.id, name: c.name });
-    });
+
+    if (Array.isArray(categories) && categories.length > 0) {
+      categories.forEach((c) => {
+        if (c && c.name) {
+          const lowerId = (c.id || '').toLowerCase();
+          const lowerName = c.name.toLowerCase();
+          if (!seen.has(lowerId) && !seen.has(lowerName)) {
+            seen.add(lowerId);
+            seen.add(lowerName);
+            list.push({ id: c.id || c.name, name: c.name });
+          }
+        }
+      });
+    }
+
     menu.forEach((m) => {
-      if (m.category && !seen.has(m.category.toLowerCase())) {
-        seen.add(m.category.toLowerCase());
-        list.push({ id: m.category, name: m.category });
+      if (m.category) {
+        const lower = m.category.toLowerCase();
+        if (!seen.has(lower)) {
+          seen.add(lower);
+          list.push({ id: m.category, name: m.category });
+        }
       }
     });
-    return list;
+
+    const activeList = list.filter((c) => {
+      if (c.id === 'all') return true;
+      return menu.some((m) => {
+        const ic = String(m.category || '').toLowerCase().trim();
+        const tc = String(c.id || '').toLowerCase().trim();
+        const tn = String(c.name || '').toLowerCase().trim();
+        return ic === tc || ic === tn;
+      });
+    });
+
+    return activeList.length > 1 ? activeList : list;
   }, [categories, menu]);
 
   const normalizeCatMatch = (itemCat, targetCatId) => {
