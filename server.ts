@@ -302,9 +302,10 @@ async function syncMongoData() {
   if (!isMongoConnected) return;
   try {
     const db = mongoose.connection.db;
+    let colNames: string[] = [];
     if (db) {
       const existingCols = await db.listCollections().toArray();
-      const colNames = existingCols.map((c) => c.name.toLowerCase());
+      colNames = existingCols.map((c) => c.name.toLowerCase());
 
       // Auto-detect legacy Szesztestvérek 'products' collection
       if (colNames.includes('products')) {
