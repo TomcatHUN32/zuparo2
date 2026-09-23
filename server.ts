@@ -477,6 +477,42 @@ async function syncMongoData() {
     }
 
     // 10. Restaurant Status
+    // 10. Ensure products and cities collections are mirrored for mongosh compatibility
+    if (db) {
+      const pCount = await db.collection('products').countDocuments();
+      if (pCount === 0 && menuItems.size > 0) {
+        console.log(`📦 [MongoDB] Mirroring ${menuItems.size} dishes into 'products' collection for mongosh...`);
+        const pList = Array.from(menuItems.values()).map((m) => ({
+          id: m.id,
+          name: m.name,
+          description: m.description || '',
+          price: m.price,
+          category: m.category,
+          packagingFee: m.packagingFee || 0,
+          drsFeeEnabled: Boolean(m.drsFeeEnabled),
+          available: m.available !== false,
+          image: m.image || '',
+        }));
+        await db.collection('products').insertMany(pList as any);
+      }
+
+      const cCount = await db.collection('cities').countDocuments();
+      if (cCount === 0 && deliveryZones.size > 0) {
+        console.log(`📦 [MongoDB] Mirroring ${deliveryZones.size} zones into 'cities' collection for mongosh...`);
+        const cList = Array.from(deliveryZones.values()).map((z) => ({
+          id: z.id,
+          name: z.city,
+          city: z.city,
+          deliveryFee: z.fee,
+          fee: z.fee,
+          zip: z.zip || '',
+          minOrder: z.minOrder || 0,
+          active: true,
+        }));
+        await db.collection('cities').insertMany(cList as any);
+      }
+    }
+
     const stDoc = await RestaurantStatusModel.findOne({ id: 'singleton_status' }).lean();
     if (stDoc) {
       restaurantStatus = {
@@ -514,6 +550,34 @@ async function saveAllToMongo() {
 
   const zList = Array.from(deliveryZones.values());
   for (const z of zList) await ZoneModel.findOneAndUpdate({ id: z.id }, z, { upsert: true });
+
+  if (mongoose.connection.db) {
+    for (const m of mList) {
+      await mongoose.connection.db.collection('products').updateOne(
+        { id: m.id },
+        { $set: { ...m } },
+        { upsert: true }
+      );
+    }
+    for (const z of zList) {
+      await mongoose.connection.db.collection('cities').updateOne(
+        { id: z.id },
+        {
+          $set: {
+            id: z.id,
+            name: z.city,
+            city: z.city,
+            deliveryFee: z.fee,
+            fee: z.fee,
+            zip: z.zip || '',
+            minOrder: z.minOrder || 0,
+            active: true,
+          },
+        },
+        { upsert: true }
+      );
+    }
+  }
 
   const cList = Array.from(couriers.values());
   for (const c of cList) await CourierModel.findOneAndUpdate({ id: c.id }, c, { upsert: true });
