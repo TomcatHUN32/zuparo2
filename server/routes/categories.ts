@@ -17,14 +17,8 @@ const DEFAULT_CATEGORIES = [
 // GET /api/categories
 router.get('/', async (_req: Request, res: Response) => {
   try {
-    let cats = await CategoryModel.find({}).sort({ order: 1, name: 1 }).lean();
-    if (!cats || cats.length === 0) {
-      // Seed default categories with upsert
-      for (const def of DEFAULT_CATEGORIES) {
-        await CategoryModel.findOneAndUpdate({ id: def.id }, def, { upsert: true }).catch(() => {});
-      }
-      cats = await CategoryModel.find({}).sort({ order: 1, name: 1 }).lean();
-    }
+    const cats = await CategoryModel.find({}).sort({ order: 1, name: 1 }).lean();
+    // Do NOT auto-reseed deleted categories! Return whatever exists in the database.
     const mapped = (cats || []).map((c: any) => ({
       ...c,
       id: c.id || c._id?.toString(),
@@ -123,11 +117,15 @@ router.put('/:id', async (req: Request, res: Response) => {
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    const decodedId = decodeURIComponent(id);
     const orConditions: any[] = [
       { id: id },
+      { id: decodedId },
       { id: id.toLowerCase() },
+      { id: decodedId.toLowerCase() },
       { name: id },
-      { name: new RegExp('^' + id + '$', 'i') },
+      { name: decodedId },
+      { name: new RegExp('^' + decodedId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') },
     ];
     if (mongoose.isValidObjectId(id)) {
       orConditions.push({ _id: new mongoose.Types.ObjectId(id) });
@@ -137,6 +135,17 @@ router.delete('/:id', async (req: Request, res: Response) => {
 
     if (mongoose.connection?.db) {
       await mongoose.connection.db.collection('categories').deleteMany({ $or: orConditions }).catch(() => {});
+      // Also update any dishes in products so they don't resurrect the deleted category
+      await mongoose.connection.db.collection('products').updateMany(
+        {
+          $or: [
+            { category: id },
+            { category: decodedId },
+            { category: new RegExp('^' + decodedId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') },
+          ]
+        },
+        { $set: { category: 'egyeb' } }
+      ).catch(() => {});
     }
 
     // Always succeed idempotently: deleting a non-existing item is already satisfied!

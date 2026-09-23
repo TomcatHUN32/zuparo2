@@ -229,9 +229,10 @@ const AdminLayout = () => {
             {/* Audio Alert Control */}
             <div className="flex items-center gap-1 bg-neutral-100 hover:bg-neutral-200/80 border border-neutral-200 rounded-full px-2.5 sm:px-3 py-1.5 transition-colors">
               <button
+                type="button"
                 onClick={toggleSoundMute}
-                title={soundMuted ? 'Hangjelzés bekapcsolása' : 'Hangjelzés némítása'}
-                className="flex items-center gap-1.5 text-xs font-semibold text-neutral-800"
+                title={soundMuted ? 'Konyhai riasztó bekapcsolása' : 'Konyhai riasztó némítása'}
+                className="flex items-center gap-1.5 text-xs font-semibold text-neutral-800 cursor-pointer"
               >
                 {soundMuted ? (
                   <>
@@ -242,16 +243,17 @@ const AdminLayout = () => {
                   <>
                     <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
                     <Volume2 size={15} className="text-emerald-600" />
-                    <span className="text-neutral-900 hidden sm:inline">Hang</span>
+                    <span className="text-neutral-900 font-bold hidden sm:inline">Riasztó</span>
                   </>
                 )}
               </button>
               <button
+                type="button"
                 onClick={testSound}
-                title="Hangjelzés tesztelése (kattints a kipróbáláshoz)"
-                className="ml-1 pl-2 border-l border-neutral-300 text-neutral-600 hover:text-amber-600 text-xs font-bold flex items-center gap-1"
+                title="Erős konyhai riasztó hang tesztelése (kattints a kipróbáláshoz)"
+                className="ml-1 pl-2 border-l border-neutral-300 text-amber-700 hover:text-amber-800 text-xs font-extrabold flex items-center gap-1 cursor-pointer"
               >
-                <Bell size={11} /> <span className="hidden sm:inline">Teszt</span>
+                <Bell size={12} className="text-amber-600" /> <span className="hidden sm:inline">Hangteszt</span>
               </button>
             </div>
 

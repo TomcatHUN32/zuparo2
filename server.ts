@@ -356,7 +356,7 @@ async function syncMongoData() {
           for (const lp of legacyProducts) {
             const id = lp.id || lp._id?.toString() || crypto.randomUUID();
             const name = lp.name || lp.nev || lp.név || lp.title || 'Névtelen étel';
-            const cat = lp.category || lp.kategoria || lp.kategória || 'Házias ételek';
+            const cat = lp.category || lp.kategoria || lp.kategória || 'egyeb';
             const price = Number(lp.price ?? lp.ar ?? lp.ár ?? 0);
             const desc = lp.description || lp.leiras || lp.leírás || lp.desc || '';
             const img = lp.image || lp.kep || lp.kép || lp.photo || lp.imageUrl || '';
@@ -1413,10 +1413,72 @@ app.delete('/api/menu/:id', requireAdmin, async (req, res) => {
   if (isMongoConnected) {
     await MenuItemModel.deleteOne({ $or: [{ id }, { _id: id }] }).catch((e) => console.error('MongoDB MenuItem delete error:', e));
     if (mongoose.connection.db) {
-      await mongoose.connection.db.collection('products').deleteOne({ $or: [{ id }, { _id: id }] }).catch(() => {});
+      await (mongoose.connection.db.collection('products') as any).deleteOne({ $or: [{ id }, { _id: id }] }).catch(() => {});
     }
   }
   res.json({ deleted: deleted ? 1 : 0 });
+});
+
+app.post('/api/menu/batch-availability', requireAdmin, async (req, res) => {
+  try {
+    const { ids, available } = req.body || {};
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'Nincsenek kiválasztott ételek.' });
+    }
+    const isAvail = Boolean(available);
+
+    for (const id of ids) {
+      let item = menuItems.get(id);
+      if (item) {
+        item.available = isAvail;
+        menuItems.set(id, item);
+      }
+    }
+
+    if (isMongoConnected) {
+      const orIds = ids.map((id) => ({ id }));
+      await MenuItemModel.updateMany({ $or: orIds }, { $set: { available: isAvail } }).catch((e) =>
+        console.error('MongoDB batch availability update error:', e)
+      );
+      if (mongoose.connection?.db) {
+        await mongoose.connection.db.collection('products').updateMany(
+          { $or: orIds },
+          { $set: { available: isAvail, elerheto: isAvail, aktiv: isAvail } }
+        ).catch(() => {});
+      }
+    }
+
+    res.json({ success: true, count: ids.length, available: isAvail });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'Hiba az elérhetőség frissítésekor.' });
+  }
+});
+
+app.post('/api/menu/batch-delete', requireAdmin, async (req, res) => {
+  try {
+    const { ids } = req.body || {};
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'Nincsenek kiválasztott ételek.' });
+    }
+
+    for (const id of ids) {
+      menuItems.delete(id);
+    }
+
+    if (isMongoConnected) {
+      const orIds = ids.map((id) => ({ id }));
+      await MenuItemModel.deleteMany({ $or: orIds }).catch((e) =>
+        console.error('MongoDB batch delete error:', e)
+      );
+      if (mongoose.connection?.db) {
+        await mongoose.connection.db.collection('products').deleteMany({ $or: orIds }).catch(() => {});
+      }
+    }
+
+    res.json({ success: true, count: ids.length });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'Hiba a törlés során.' });
+  }
 });
 
 // Zones
@@ -1675,9 +1737,18 @@ app.post('/api/orders', (req, res) => {
   const packagingFee = o.packagingFee !== undefined ? Number(o.packagingFee) : (restaurantStatus.packagingFeeEnabled ? restaurantStatus.packagingFee : 0);
   const drsFee = o.drsFee !== undefined ? Number(o.drsFee) : (restaurantStatus.drsFeeEnabled ? restaurantStatus.drsFee : 0);
 
+  const isOnline = user?.role !== 'admin' || Boolean(o.isOnlineOrder) || o.source === 'web' || o.channel === 'online';
+
   const newOrder: Order = {
     ...o,
     id: orderId,
+    customerName: o.customerName || (o.type === 'dinein' ? 'Helyben' : (o.type === 'pickup' ? 'Elvitel' : 'Vendég')),
+    phone: o.phone || '',
+    street: o.street || (o.type === 'dinein' ? 'Helyben' : (o.type === 'pickup' ? 'Elvitel' : '')),
+    city: o.city || '',
+    zip: o.zip || '',
+    isOnlineOrder: isOnline,
+    source: o.source || (user?.role !== 'admin' ? 'web' : 'pos'),
     packagingFee: Math.max(0, Number(packagingFee) || 0),
     drsFee: Math.max(0, Number(drsFee) || 0),
     status: 'new',

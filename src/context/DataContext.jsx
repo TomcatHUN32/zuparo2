@@ -8,6 +8,8 @@ import {
   toggleAudioMute as toggleSoundMute,
   testSound,
   setAudioMuted,
+  getSoundType,
+  setSoundType,
 } from '../utils/soundAlert';
 import { CATEGORIES as INITIAL_CATEGORIES } from '../mock/mockData';
 
@@ -16,7 +18,7 @@ const DataContext = createContext(null);
 
 export const DataProvider = ({ children }) => {
   const { user, ready } = useAuth();
-  const [categories, setCategories] = useState(INITIAL_CATEGORIES);
+  const [categories, setCategories] = useState([]);
   const [menu, setMenu] = useState([]);
   const [zones, setZones] = useState([]);
   const [couriers, setCouriers] = useState([]);
@@ -76,7 +78,7 @@ export const DataProvider = ({ children }) => {
     ]);
     setMenu(m); setZones(z); setCouriers(c); setCoupons(cp);
     if (rs) setRestaurantStatus(rs);
-    if (Array.isArray(cats) && cats.length > 0) setCategories(cats);
+    if (Array.isArray(cats)) setCategories(cats);
   }, []);
 
   const loadAdmin = useCallback(async () => {
@@ -135,10 +137,12 @@ export const DataProvider = ({ children }) => {
 
             // Is it an online order?
             const isOnline =
-              ord.isOnlineOrder ||
+              Boolean(ord.isOnlineOrder) ||
               ord.channel === 'online' ||
+              ord.source === 'web' ||
+              ord.channel === 'web' ||
               ord.payment === 'online' ||
-              ord.source === 'web';
+              (ord.channel === 'house' && ord.source !== 'pos' && !ord.posCreated);
 
             if (isOnline) {
               hasNewOnlineOrder = true;
@@ -149,17 +153,17 @@ export const DataProvider = ({ children }) => {
 
         if (hasNewOnlineOrder && newestOnlineOrderObj) {
           setLastOnlineOrder(newestOnlineOrderObj);
-          // Play sound alert for the kitchen / counter!
+          // Play loud kitchen alarm sound alert for the kitchen / counter!
           playOnlineOrderSound();
-          toast.success(`🔔 ÚJ ONLINE RENDELÉS: ${newestOnlineOrderObj.id}`, {
-            description: `${newestOnlineOrderObj.customerName || 'Vendég'} • ${newestOnlineOrderObj.total?.toLocaleString()} Ft`,
-            duration: 9000,
+          toast.success(`🚨 ÚJ ONLINE RENDELÉS ÉRKEZETT: #${newestOnlineOrderObj.id}!`, {
+            description: `${newestOnlineOrderObj.customerName || 'Vendég'} • ${newestOnlineOrderObj.type === 'delivery' ? 'Kiszállítás' : newestOnlineOrderObj.type === 'pickup' ? 'Elvitel' : 'Helyben'} • ${newestOnlineOrderObj.total?.toLocaleString()} Ft`,
+            duration: 10000,
           });
         }
       } catch (err) {
         // Polling error silently handled
       }
-    }, 5000);
+    }, 3000);
 
     return () => clearInterval(interval);
   }, [ready, user]);
@@ -201,7 +205,7 @@ export const DataProvider = ({ children }) => {
   const handleTestSound = () => {
     const ok = testSound();
     if (ok) {
-      toast.info('🔔 Hangjelzés tesztelve');
+      toast.info('🚨 Konyhai riasztó tesztelve (Erős figyelmeztető hang)');
     } else {
       toast.error('A böngésző blokkolta az audiót, kattints újra!');
     }
@@ -247,6 +251,25 @@ export const DataProvider = ({ children }) => {
   const deleteMenuItem = async (id) => {
     await axios.delete(`${API}/menu/${id}`);
     setMenu((prev) => prev.filter((m) => m.id !== id));
+  };
+  const batchUpdateAvailability = async (ids, available) => {
+    try {
+      await axios.post(`${API}/menu/batch-availability`, { ids, available });
+    } catch (e) {
+      console.warn('Batch endpoint failed, falling back to individual calls:', e);
+      await Promise.all(ids.map((id) => axios.put(`${API}/menu/${id}`, { available }).catch(() => {})));
+    }
+    setMenu((prev) => prev.map((m) => (ids.includes(m.id) ? { ...m, available } : m)));
+  };
+  const batchDeleteMenuItems = async (ids) => {
+    try {
+      await axios.post(`${API}/menu/batch-delete`, { ids });
+    } catch (e) {
+      console.warn('Batch delete endpoint failed, falling back to individual calls:', e);
+      await Promise.all(ids.map((id) => axios.delete(`${API}/menu/${id}`).catch(() => {})));
+    }
+    const idSet = new Set(ids);
+    setMenu((prev) => prev.filter((m) => !idSet.has(m.id)));
   };
 
   // -------- Zones --------
@@ -372,13 +395,21 @@ export const DataProvider = ({ children }) => {
       return { id, ...patch };
     }
   };
-  const deleteCategory = async (id) => {
+  const deleteCategory = async (id, name) => {
     try {
       await axios.delete(`${API}/categories/${encodeURIComponent(id)}`);
     } catch (err) {
       console.warn('Backend deleteCategory error, removing from local state:', err);
     }
-    setCategories((prev) => prev.filter((c) => c.id !== id && c._id !== id && c.name !== id));
+    setCategories((prev) =>
+      prev.filter(
+        (c) =>
+          c.id !== id &&
+          c._id !== id &&
+          (name ? c.name?.toLowerCase() !== name?.toLowerCase() : true) &&
+          c.name?.toLowerCase() !== id?.toLowerCase()
+      )
+    );
   };
 
   const uploadFoodImage = async (imageData) => {
@@ -391,7 +422,7 @@ export const DataProvider = ({ children }) => {
       categories, addCategory, updateCategory, deleteCategory,
       menu, zones, couriers, customers, inventory, orders, coupons, loaded,
       addOrder, updateOrder, deleteOrder,
-      addMenuItem, updateMenuItem, deleteMenuItem,
+      addMenuItem, updateMenuItem, deleteMenuItem, batchUpdateAvailability, batchDeleteMenuItems,
       addZone, updateZone, deleteZone,
       addCourier, updateCourier, deleteCourier,
       addInventory, updateInventory, deleteInventory,
@@ -400,6 +431,7 @@ export const DataProvider = ({ children }) => {
       getZoneFee,
       getDayReport, closeDay, getDayCloses,
       soundMuted, toggleSoundMute: toggleMute, testSound: handleTestSound,
+      getSoundType, setSoundType, playOnlineOrderSound,
       lastOnlineOrder,
       restaurantStatus, updateRestaurantStatus, toggleRestaurantOpen, uploadFoodImage,
       currentBudapestDate,

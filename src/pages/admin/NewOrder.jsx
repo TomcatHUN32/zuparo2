@@ -172,21 +172,52 @@ const NewOrder = () => {
   };
 
   const submitOrder = async () => {
-    if (!customer.name || !customer.phone) return toast.error('Kérlek add meg a vendég adatait');
     if (cart.length === 0) return toast.error('A kosár üres');
-    if (orderType === 'delivery' && (!address.zip || !address.street)) return toast.error('A szállítási cím hiányos');
+
+    if (orderType === 'delivery') {
+      if (!customer.name?.trim()) return toast.error('Kérlek add meg a vendég nevét!');
+      if (!customer.phone?.trim()) return toast.error('Kérlek add meg a vendég telefonszámát!');
+      if (!address.zip || !address.street?.trim()) return toast.error('A szállítási cím hiányos!');
+    } else if (orderType === 'pickup') {
+      if (!customer.name?.trim()) return toast.error('Elvitelhez kérlek add meg a vendég nevét!');
+      if (!customer.phone?.trim()) return toast.error('Elvitelhez kérlek add meg a vendég telefonszámát!');
+    } else if (orderType === 'dinein') {
+      // Helyben fogyasztás: nincs kötelező adat!
+    }
+
     try {
+      const finalName = orderType === 'dinein'
+        ? (customer.name?.trim() || 'Helyben')
+        : customer.name?.trim();
+
+      const finalPhone = orderType === 'dinein'
+        ? (customer.phone?.trim() || '')
+        : customer.phone?.trim();
+
+      const finalStreet = orderType === 'delivery'
+        ? address.street
+        : (orderType === 'pickup' ? 'Elvitel' : 'Helyben');
+
       const o = await addOrder({
-        customerName: customer.name, phone: customer.phone,
-        zip: address.zip, city: address.city, street: address.street, floor: address.floor,
-        type: orderType, payment, channel,
-        items: cart, subtotal, deliveryFee,
+        customerName: finalName,
+        phone: finalPhone,
+        zip: orderType === 'delivery' ? address.zip : '',
+        city: orderType === 'delivery' ? address.city : '',
+        street: finalStreet,
+        floor: orderType === 'delivery' ? address.floor : '',
+        type: orderType,
+        payment,
+        channel,
+        items: cart,
+        subtotal,
+        deliveryFee: orderType === 'delivery' ? deliveryFee : 0,
         packagingFee,
         drsFee,
         discountPct: (couponApplied?.kind === 'percent' ? couponApplied.value : 0) + (manualDiscount.kind === 'percent' ? Math.min(100, manualVal) : 0),
         discountAmount,
         couponCode: couponApplied?.code || '',
-        total, note: internalNote,
+        total,
+        note: internalNote,
       });
       toast.success(`Rendelés elküldve: ${o.id}`);
       setCart([]); setCouponApplied(null); setCoupon(''); setManualDiscount({ kind: 'percent', value: 0 }); setInternalNote('');
@@ -202,51 +233,8 @@ const NewOrder = () => {
   return (
     <div className="p-4 sm:p-6 lg:p-8 grid grid-cols-1 lg:grid-cols-12 gap-6">
       <div className="col-span-1 lg:col-span-4 space-y-6">
-        <Card title={<><span className="text-neutral-400 mr-2">1.</span>Vevő adatai</>} action={
-          <button onClick={() => setShowReturning((v) => !v)} className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md bg-neutral-100 hover:bg-neutral-200 text-neutral-700 border border-neutral-200">
-            <Users size={14} /> Visszatérő vendég <Search size={14} />
-          </button>
-        }>
-          {showReturning && (
-            <div className="mb-3 max-h-56 overflow-y-auto rounded-lg border border-neutral-200 divide-y">
-              {customers.map((c) => (
-                <button key={c.id} onClick={() => pickReturning(c)} className="w-full text-left px-3 py-2 hover:bg-neutral-50">
-                  <div className="text-sm font-medium text-neutral-900">{c.name}</div>
-                  <div className="text-xs text-neutral-500">{c.phone} • {c.zip} {c.city}</div>
-                </button>
-              ))}
-              {customers.length === 0 && <div className="text-sm text-neutral-500 px-3 py-3">Nincs korábbi vendég.</div>}
-            </div>
-          )}
-          <Field label="Név *"><input value={customer.name} onChange={(e) => setCustomer({ ...customer, name: e.target.value })} className="input" placeholder="Kiss Ádám" /></Field>
-          <Field label="Telefonszám *"><input value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} className="input" placeholder="+36 70 123 4567" /></Field>
-        </Card>
-
-        <Card title={<><span className="text-neutral-400 mr-2">2.</span>Szállítási cím</>} action={
-          <button className="inline-flex items-center gap-1 text-sm px-3 py-1.5 rounded-md bg-neutral-100 hover:bg-neutral-200 text-neutral-700 border border-neutral-200"><MapPin size={14} /> Térképen</button>
-        }>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Irányítószám *">
-              <input value={address.zip} onChange={(e) => {
-                const zip = e.target.value; const z = zones.find((zz) => zz.zip === zip);
-                setAddress({ ...address, zip, city: z ? z.city : address.city });
-              }} className="input" />
-            </Field>
-            <Field label="Település *">
-              <select value={address.city} onChange={(e) => {
-                const city = e.target.value; const z = zones.find((zz) => zz.city === city);
-                setAddress({ ...address, city, zip: z ? z.zip : address.zip });
-              }} className="input">
-                {zones.map((z) => <option key={z.id} value={z.city}>{z.city}</option>)}
-              </select>
-            </Field>
-          </div>
-          <Field label="Utca, házszám *"><input value={address.street} onChange={(e) => setAddress({ ...address, street: e.target.value })} className="input" placeholder="Kossuth Lajos utca 15." /></Field>
-          <Field label="Emelet / ajtó / kapucsengő"><input value={address.floor} onChange={(e) => setAddress({ ...address, floor: e.target.value })} className="input" placeholder="Földszint, kapu" /></Field>
-          <Field label="Megjegyzés a futárnak"><input value={address.note} onChange={(e) => setAddress({ ...address, note: e.target.value })} className="input" placeholder="Csengő nem működik..." /></Field>
-        </Card>
-
-        <Card title={<><span className="text-neutral-400 mr-2">3.</span>Rendelés típusa</>}>
+        {/* 1. Rendelés típusa */}
+        <Card title={<><span className="text-neutral-400 mr-2">1.</span>Rendelés típusa</>}>
           <div className="grid grid-cols-3 gap-3">
             <TypeButton active={orderType === 'delivery'} onClick={() => setOrderType('delivery')} icon={Bike} label="Kiszállítás" />
             <TypeButton active={orderType === 'pickup'} onClick={() => setOrderType('pickup')} icon={ShoppingBag} label="Elvitel" />
@@ -254,6 +242,155 @@ const NewOrder = () => {
           </div>
         </Card>
 
+        {/* 2. Vevő adatai */}
+        <Card
+          title={
+            <>
+              <span className="text-neutral-400 mr-2">2.</span>
+              {orderType === 'dinein' ? 'Vendég / Asztal (nem kötelező)' : 'Vevő adatai'}
+            </>
+          }
+          action={
+            orderType !== 'dinein' && (
+              <button
+                type="button"
+                onClick={() => setShowReturning((v) => !v)}
+                className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md bg-neutral-100 hover:bg-neutral-200 text-neutral-700 border border-neutral-200"
+              >
+                <Users size={14} /> Visszatérő vendég <Search size={14} />
+              </button>
+            )
+          }
+        >
+          {orderType === 'dinein' ? (
+            <div className="space-y-3">
+              <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-xs font-medium">
+                🍽️ <strong>Helyben fogyasztás:</strong> Nincs szükség adatok megadására! Igény esetén beírhatsz egy nevet vagy asztalszámot.
+              </div>
+              <Field label="Asztalszám vagy Név (opcionális)">
+                <input
+                  value={customer.name}
+                  onChange={(e) => setCustomer({ ...customer, name: e.target.value })}
+                  className="input"
+                  placeholder="pl. 3-as asztal"
+                />
+              </Field>
+              <Field label="Telefonszám (opcionális)">
+                <input
+                  value={customer.phone}
+                  onChange={(e) => setCustomer({ ...customer, phone: e.target.value })}
+                  className="input"
+                  placeholder="Nem kötelező"
+                />
+              </Field>
+            </div>
+          ) : orderType === 'pickup' ? (
+            <div className="space-y-3">
+              <div className="p-2.5 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-xs font-medium">
+                🛍️ <strong>Elvitel:</strong> Csak név és telefonszám szükséges, cím megadása nem kell!
+              </div>
+              {showReturning && (
+                <div className="mb-3 max-h-56 overflow-y-auto rounded-lg border border-neutral-200 divide-y">
+                  {customers.map((c) => (
+                    <button key={c.id} onClick={() => pickReturning(c)} className="w-full text-left px-3 py-2 hover:bg-neutral-50">
+                      <div className="text-sm font-medium text-neutral-900">{c.name}</div>
+                      <div className="text-xs text-neutral-500">{c.phone}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              <Field label="Név *">
+                <input
+                  value={customer.name}
+                  onChange={(e) => setCustomer({ ...customer, name: e.target.value })}
+                  className="input"
+                  placeholder="Kiss Ádám"
+                />
+              </Field>
+              <Field label="Telefonszám *">
+                <input
+                  value={customer.phone}
+                  onChange={(e) => setCustomer({ ...customer, phone: e.target.value })}
+                  className="input"
+                  placeholder="+36 70 123 4567"
+                />
+              </Field>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {showReturning && (
+                <div className="mb-3 max-h-56 overflow-y-auto rounded-lg border border-neutral-200 divide-y">
+                  {customers.map((c) => (
+                    <button key={c.id} onClick={() => pickReturning(c)} className="w-full text-left px-3 py-2 hover:bg-neutral-50">
+                      <div className="text-sm font-medium text-neutral-900">{c.name}</div>
+                      <div className="text-xs text-neutral-500">{c.phone} • {c.zip} {c.city}</div>
+                    </button>
+                  ))}
+                  {customers.length === 0 && <div className="text-sm text-neutral-500 px-3 py-3">Nincs korábbi vendég.</div>}
+                </div>
+              )}
+              <Field label="Név *">
+                <input
+                  value={customer.name}
+                  onChange={(e) => setCustomer({ ...customer, name: e.target.value })}
+                  className="input"
+                  placeholder="Kiss Ádám"
+                />
+              </Field>
+              <Field label="Telefonszám *">
+                <input
+                  value={customer.phone}
+                  onChange={(e) => setCustomer({ ...customer, phone: e.target.value })}
+                  className="input"
+                  placeholder="+36 70 123 4567"
+                />
+              </Field>
+            </div>
+          )}
+        </Card>
+
+        {/* 3. Szállítási cím (csak Kiszállításnál) */}
+        {orderType === 'delivery' ? (
+          <Card
+            title={<><span className="text-neutral-400 mr-2">3.</span>Szállítási cím</>}
+            action={
+              <button className="inline-flex items-center gap-1 text-sm px-3 py-1.5 rounded-md bg-neutral-100 hover:bg-neutral-200 text-neutral-700 border border-neutral-200">
+                <MapPin size={14} /> Térképen
+              </button>
+            }
+          >
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Irányítószám *">
+                <input value={address.zip} onChange={(e) => {
+                  const zip = e.target.value; const z = zones.find((zz) => zz.zip === zip);
+                  setAddress({ ...address, zip, city: z ? z.city : address.city });
+                }} className="input" />
+              </Field>
+              <Field label="Település *">
+                <select value={address.city} onChange={(e) => {
+                  const city = e.target.value; const z = zones.find((zz) => zz.city === city);
+                  setAddress({ ...address, city, zip: z ? z.zip : address.zip });
+                }} className="input">
+                  {zones.map((z) => <option key={z.id} value={z.city}>{z.city}</option>)}
+                </select>
+              </Field>
+            </div>
+            <Field label="Utca, házszám *"><input value={address.street} onChange={(e) => setAddress({ ...address, street: e.target.value })} className="input" placeholder="Kossuth Lajos utca 15." /></Field>
+            <Field label="Emelet / ajtó / kapucsengő"><input value={address.floor} onChange={(e) => setAddress({ ...address, floor: e.target.value })} className="input" placeholder="Földszint, kapu" /></Field>
+            <Field label="Megjegyzés a futárnak"><input value={address.note} onChange={(e) => setAddress({ ...address, note: e.target.value })} className="input" placeholder="Csengő nem működik..." /></Field>
+          </Card>
+        ) : (
+          <div className="p-3 bg-neutral-50 border border-neutral-200 rounded-xl text-neutral-500 text-xs flex items-center gap-2">
+            <MapPin size={15} className="text-neutral-400" />
+            <span>
+              {orderType === 'pickup'
+                ? 'Elviteles rendelés: cím nem szükséges, a vendég az étteremben veszi át.'
+                : 'Helyben fogyasztás: cím nem szükséges.'}
+            </span>
+          </div>
+        )}
+
+        {/* 4. Rendelés forrása & ár */}
         <Card title={<><span className="text-neutral-400 mr-2">4.</span>Rendelés forrása & ár</>}>
           <div className="grid grid-cols-3 gap-3">
             {CHANNELS.map((c) => (
@@ -268,6 +405,7 @@ const NewOrder = () => {
           )}
         </Card>
 
+        {/* 5. Fizetés módja */}
         <Card title={<><span className="text-neutral-400 mr-2">5.</span>Fizetés módja</>}>
           <div className="grid grid-cols-3 gap-3">
             <TypeButton active={payment === 'cash'} onClick={() => setPayment('cash')} icon={Banknote} label="Készpénz" />

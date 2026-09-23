@@ -1,7 +1,30 @@
 import React, { useState, useRef } from 'react';
 import { useData } from '../../context/DataContext';
 import { CATEGORIES as INITIAL_CATEGORIES, formatFt, LOGO_URL } from '../../mock/mockData';
-import { Plus, Trash2, Pencil, Check, X, ChefHat, Upload, Link as LinkIcon, Image as ImageIcon, Scale, ArrowRight, Package, Recycle, FolderPlus, Settings2, Folder } from 'lucide-react';
+import {
+  Plus,
+  Trash2,
+  Pencil,
+  Check,
+  X,
+  ChefHat,
+  Upload,
+  Link as LinkIcon,
+  Image as ImageIcon,
+  Scale,
+  ArrowRight,
+  Package,
+  Recycle,
+  FolderPlus,
+  Settings2,
+  Folder,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
+  CheckSquare,
+  Square,
+  CheckCheck
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { convertUnit, getRecipeUnitsForBaseUnit, getDefaultRecipeUnit } from '../../utils/units';
 
@@ -18,10 +41,22 @@ const empty = {
 };
 
 const MenuAdmin = () => {
-  const { menu, inventory, addMenuItem, updateMenuItem, deleteMenuItem, categories, addCategory, updateCategory, deleteCategory } = useData();
-  const currentCategories = categories && categories.length > 0 ? categories : INITIAL_CATEGORIES;
-  const [cat, setCat] = useState(() => currentCategories[0]?.id || 'pizzak');
-  const [draft, setDraft] = useState(() => ({ ...empty, category: currentCategories[0]?.id || 'pizzak' }));
+  const {
+    menu,
+    inventory,
+    addMenuItem,
+    updateMenuItem,
+    deleteMenuItem,
+    batchUpdateAvailability,
+    batchDeleteMenuItems,
+    categories,
+    addCategory,
+    updateCategory,
+    deleteCategory
+  } = useData();
+  const currentCategories = Array.isArray(categories) ? categories : [];
+  const [cat, setCat] = useState('all');
+  const [draft, setDraft] = useState(() => ({ ...empty, category: currentCategories[0]?.id || 'egyeb' }));
   const [editing, setEditing] = useState(null);
   const [ed, setEd] = useState(empty);
   const [recipeFor, setRecipeFor] = useState(null); // menu item id
@@ -69,7 +104,7 @@ const MenuAdmin = () => {
   };
 
   const handleDeleteCategory = async (id, name) => {
-    const dishesInCat = menu.filter((m) => normalizeCatMatch(m.category, id));
+    const dishesInCat = menu.filter((m) => normalizeCatMatch(m.category, id) || normalizeCatMatch(m.category, name));
     let confirmMsg = `Biztosan törölni szeretnéd a(z) "${name}" kategóriát?`;
     if (dishesInCat.length > 0) {
       confirmMsg = `Figyelem! Ebben a kategóriában (${name}) jelenleg ${dishesInCat.length} db étel van!\n\nBiztosan törlöd a kategóriát?`;
@@ -78,8 +113,14 @@ const MenuAdmin = () => {
 
     setCatLoading(true);
     try {
-      await deleteCategory(id);
-      if (cat === id) {
+      await deleteCategory(id, name);
+      // Clean up local menu items that had this category
+      menu.forEach((m) => {
+        if (normalizeCatMatch(m.category, id) || normalizeCatMatch(m.category, name)) {
+          updateMenuItem(m.id, { category: 'egyeb' }).catch(() => {});
+        }
+      });
+      if (cat === id || cat === name) {
         setCat('all');
         setDraft((prev) => ({ ...prev, category: '' }));
       }
@@ -175,6 +216,54 @@ const MenuAdmin = () => {
 
   const items = menu.filter((m) => cat === 'all' ? true : normalizeCatMatch(m.category, cat));
   const recipeItem = menu.find((m) => m.id === recipeFor);
+
+  // Multi-selection state & batch action handlers
+  const [selectedIds, setSelectedIds] = useState([]);
+
+  const isAllSelected = items.length > 0 && items.every((m) => selectedIds.includes(m.id));
+  const isSomeSelected = items.some((m) => selectedIds.includes(m.id)) && !isAllSelected;
+
+  const toggleSelect = (id) => {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const toggleSelectAll = () => {
+    if (isAllSelected) {
+      const visibleSet = new Set(items.map((m) => m.id));
+      setSelectedIds((prev) => prev.filter((id) => !visibleSet.has(id)));
+    } else {
+      const newSelected = new Set([...selectedIds, ...items.map((m) => m.id)]);
+      setSelectedIds(Array.from(newSelected));
+    }
+  };
+
+  const handleBatchAvailability = async (available) => {
+    if (selectedIds.length === 0) return;
+    try {
+      await batchUpdateAvailability(selectedIds, available);
+      toast.success(
+        available
+          ? `${selectedIds.length} db étel elérhetővé téve!`
+          : `${selectedIds.length} db étel nem elérhetőként (elfogyottként) beállítva!`
+      );
+    } catch (e) {
+      console.error(e);
+      toast.error('Hiba az állapot módosításakor');
+    }
+  };
+
+  const handleBatchDelete = async () => {
+    if (selectedIds.length === 0) return;
+    if (!window.confirm(`Biztosan törölni szeretnéd a kijelölt ${selectedIds.length} db tételt?`)) return;
+    try {
+      await batchDeleteMenuItems(selectedIds);
+      setSelectedIds([]);
+      toast.success('Kijelölt ételek sikeresen törölve.');
+    } catch (e) {
+      console.error(e);
+      toast.error('Hiba a kijelölt ételek törlésekor');
+    }
+  };
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-6">
@@ -453,12 +542,76 @@ const MenuAdmin = () => {
         </div>
       </div>
 
+      {/* Batch Action Toolbar */}
+      {selectedIds.length > 0 && (
+        <div className="bg-neutral-900 text-white px-4 py-3 rounded-xl shadow-lg border border-neutral-800 flex flex-wrap items-center justify-between gap-3 sticky top-4 z-40 animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center font-extrabold text-sm border border-amber-500/30">
+              {selectedIds.length}
+            </div>
+            <div>
+              <div className="font-bold text-sm text-white">{selectedIds.length} db étel kijelölve</div>
+              <div className="text-[11px] text-neutral-400">Csoportos elérhetőség / műveletek:</div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => handleBatchAvailability(true)}
+              className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs inline-flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+            >
+              <CheckCircle2 size={15} />
+              Elérhetővé tétel ({selectedIds.length})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleBatchAvailability(false)}
+              className="px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs inline-flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+            >
+              <XCircle size={15} />
+              Elfogyott / Nem elérhető ({selectedIds.length})
+            </button>
+
+            <button
+              type="button"
+              onClick={handleBatchDelete}
+              className="px-3 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-rose-400 border border-neutral-700 font-bold text-xs inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Kijelölt ételek végleges törlése"
+            >
+              <Trash2 size={14} />
+              Törlés
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSelectedIds([])}
+              className="px-2.5 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer"
+            >
+              <X size={14} />
+              Mégse
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Menu items table */}
       <div className="bg-white rounded-xl border border-neutral-200 shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-neutral-50 border-b border-neutral-200 text-neutral-500 font-semibold">
               <tr>
+                <th className="py-2.5 px-3 w-10 text-center">
+                  <input
+                    type="checkbox"
+                    checked={isAllSelected}
+                    ref={(el) => { if (el) el.indeterminate = isSomeSelected; }}
+                    onChange={toggleSelectAll}
+                    className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 border-neutral-300 cursor-pointer accent-amber-500"
+                    title={isAllSelected ? 'Kijelölés megszüntetése' : 'Összes kijelölése ezen a listán'}
+                  />
+                </th>
                 <th className="py-2.5 px-4 text-left">Fotó</th>
                 <th className="py-2.5 px-4 text-left">Név</th>
                 <th className="py-2.5 px-4 text-left">Leírás</th>
@@ -468,13 +621,14 @@ const MenuAdmin = () => {
                 <th className="py-2.5 px-4 text-center">Csomagolás</th>
                 <th className="py-2.5 px-4 text-center">50 Ft DRS</th>
                 <th className="py-2.5 px-4 text-center">Recept</th>
-                <th className="py-2.5 px-4 text-right">Elérhető</th>
+                <th className="py-2.5 px-4 text-right">Elérhetőség</th>
                 <th className="py-2.5 px-4 text-right">Művelet</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-100">
               {items.map((m) => editing === m.id ? (
                 <tr key={m.id} className="bg-amber-50/50">
+                  <td className="py-3 px-3 text-center"></td>
                   <td className="py-3 px-4">
                     <div className="space-y-1.5">
                       <img
@@ -602,17 +756,45 @@ const MenuAdmin = () => {
                   </td>
                 </tr>
               ) : (
-                <tr key={m.id} className="hover:bg-neutral-50/80 transition-colors">
+                <tr
+                  key={m.id}
+                  className={`transition-colors ${
+                    selectedIds.includes(m.id)
+                      ? 'bg-amber-50/80 hover:bg-amber-100/70'
+                      : m.available === false
+                      ? 'bg-neutral-50/60 opacity-75 hover:bg-neutral-100/60'
+                      : 'hover:bg-neutral-50/80'
+                  }`}
+                >
+                  <td className="py-2.5 px-3 text-center">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.includes(m.id)}
+                      onChange={() => toggleSelect(m.id)}
+                      className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 border-neutral-300 cursor-pointer accent-amber-500"
+                    />
+                  </td>
                   <td className="py-2.5 px-4">
                     <img
                       src={m.image || LOGO_URL}
                       alt={m.name}
-                      className="h-10 w-12 object-cover rounded-md border border-neutral-200 shadow-2xs bg-neutral-100"
+                      className={`h-10 w-12 object-cover rounded-md border border-neutral-200 shadow-2xs bg-neutral-100 ${
+                        m.available === false ? 'grayscale' : ''
+                      }`}
                       onError={(e) => { e.currentTarget.src = LOGO_URL; }}
                     />
                   </td>
                   <td className="py-2.5 px-4 font-bold text-neutral-900">
-                    <div>{m.name}</div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className={m.available === false ? 'line-through text-neutral-500' : ''}>
+                        {m.name}
+                      </span>
+                      {m.available === false && (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-rose-100 text-rose-700 border border-rose-200 uppercase tracking-wide inline-flex items-center gap-0.5">
+                          <AlertCircle size={10} /> Elfogyott
+                        </span>
+                      )}
+                    </div>
                     {cat === 'all' && (
                       <span className="inline-block mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-neutral-100 text-neutral-600 border border-neutral-200">
                         {allCategories.find((c) => normalizeCatMatch(m.category, c.id))?.name || m.category}
@@ -640,7 +822,7 @@ const MenuAdmin = () => {
                     <button
                       type="button"
                       onClick={() => updateMenuItem(m.id, { drsFeeEnabled: !m.drsFeeEnabled })}
-                      className={`text-xs px-2.5 py-0.5 rounded-full border font-semibold inline-flex items-center gap-1 transition-colors ${
+                      className={`text-xs px-2.5 py-0.5 rounded-full border font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer ${
                         m.drsFeeEnabled
                           ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
                           : 'bg-neutral-100 text-neutral-400 border-neutral-200 hover:text-neutral-600'
@@ -653,7 +835,7 @@ const MenuAdmin = () => {
                   <td className="py-2.5 px-4 text-center">
                     <button
                       onClick={() => setRecipeFor(m.id)}
-                      className={`text-xs px-2.5 py-1 rounded-full border inline-flex items-center gap-1 ${
+                      className={`text-xs px-2.5 py-1 rounded-full border inline-flex items-center gap-1 cursor-pointer ${
                         (m.recipe || []).length > 0 ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-neutral-100 text-neutral-500 border-neutral-200'
                       }`}
                     >
@@ -662,12 +844,21 @@ const MenuAdmin = () => {
                   </td>
                   <td className="py-2.5 px-4 text-right">
                     <button
-                      onClick={() => updateMenuItem(m.id, { available: !m.available })}
-                      className={`text-xs px-2.5 py-1 rounded-full border font-semibold ${
-                        m.available ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-neutral-100 text-neutral-500 border-neutral-200'
+                      type="button"
+                      onClick={() => {
+                        const nextAvail = !m.available;
+                        updateMenuItem(m.id, { available: nextAvail });
+                        toast.success(nextAvail ? `"${m.name}" elérhetővé téve` : `"${m.name}" elfogyottként megjelölve`);
+                      }}
+                      className={`text-xs px-3 py-1 rounded-full border font-bold inline-flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer ${
+                        m.available
+                          ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-300'
+                          : 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-300'
                       }`}
+                      title={m.available ? 'Kattints ide, ha elfogyott!' : 'Kattints ide, ha újra rendelhető!'}
                     >
-                      {m.available ? 'Elérhető' : 'Nem'}
+                      <span className={`w-2 h-2 rounded-full ${m.available ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
+                      {m.available ? 'Elérhető' : 'Elfogyott'}
                     </button>
                   </td>
                   <td className="py-2.5 px-4 text-right whitespace-nowrap">
@@ -702,7 +893,7 @@ const MenuAdmin = () => {
               ))}
               {items.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-neutral-500">
+                  <td colSpan={12} className="py-12 text-center text-neutral-500">
                     Nincs termék ebben a kategóriában.
                   </td>
                 </tr>
@@ -814,12 +1005,13 @@ const CategoryModal = ({
             </h4>
 
             <div className="divide-y divide-neutral-100 border border-neutral-200 rounded-xl overflow-hidden bg-white shadow-xs">
-              {categories.map((c) => {
-                const dishCount = menu.filter((m) => m.category === c.id).length;
-                const isEditing = editingCatId === c.id;
+              {categories.map((c, idx) => {
+                const catId = c.id || c._id || c.name;
+                const dishCount = menu.filter((m) => normalizeCatMatch(m.category, catId) || normalizeCatMatch(m.category, c.name)).length;
+                const isEditing = editingCatId === catId;
 
                 return (
-                  <div key={c.id} className="p-3.5 flex items-center justify-between gap-3 hover:bg-neutral-50/80 transition-colors">
+                  <div key={catId || idx} className="p-3.5 flex items-center justify-between gap-3 hover:bg-neutral-50/80 transition-colors">
                     {isEditing ? (
                       <div className="flex-1 flex items-center gap-2">
                         <input
@@ -827,7 +1019,7 @@ const CategoryModal = ({
                           value={editingCatName}
                           onChange={(e) => setEditingCatName(e.target.value)}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter') onUpdateCategory(c.id);
+                            if (e.key === 'Enter') onUpdateCategory(catId);
                             if (e.key === 'Escape') setEditingCatId(null);
                           }}
                           autoFocus
@@ -835,7 +1027,7 @@ const CategoryModal = ({
                         />
                         <button
                           type="button"
-                          onClick={() => onUpdateCategory(c.id)}
+                          onClick={() => onUpdateCategory(catId)}
                           className="p-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md transition-colors"
                           title="Mentés"
                         >
@@ -860,12 +1052,11 @@ const CategoryModal = ({
                             {dishCount} db étel
                           </span>
                         </div>
-
                         <div className="flex items-center gap-1.5">
                           <button
                             type="button"
                             onClick={() => {
-                              setEditingCatId(c.id);
+                              setEditingCatId(catId);
                               setEditingCatName(c.name);
                             }}
                             className="p-1.5 rounded-md text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 border border-transparent hover:border-neutral-200 transition-colors"
@@ -875,7 +1066,7 @@ const CategoryModal = ({
                           </button>
                           <button
                             type="button"
-                            onClick={() => onDeleteCategory(c.id, c.name)}
+                            onClick={() => onDeleteCategory(catId, c.name)}
                             className="p-1.5 rounded-md text-rose-500 hover:text-rose-700 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition-colors"
                             title="Kategória törlése"
                           >
