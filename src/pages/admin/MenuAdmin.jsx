@@ -145,7 +145,36 @@ const MenuAdmin = () => {
     toast.success('Mentve');
   };
 
-  const items = menu.filter((m) => m.category === cat);
+  // Combine defined categories with any categories present on menu items
+  const allCategories = React.useMemo(() => {
+    const list = [...currentCategories];
+    const seenIds = new Set(list.map((c) => c.id.toLowerCase()));
+    const seenNames = new Set(list.map((c) => c.name.toLowerCase()));
+    menu.forEach((m) => {
+      if (m.category && !seenIds.has(m.category.toLowerCase()) && !seenNames.has(m.category.toLowerCase())) {
+        seenIds.add(m.category.toLowerCase());
+        list.push({ id: m.category, name: m.category });
+      }
+    });
+    return list;
+  }, [currentCategories, menu]);
+
+  const normalizeCatMatch = (itemCat, targetCatId) => {
+    if (!itemCat || !targetCatId) return false;
+    if (targetCatId === 'all') return true;
+    const ic = String(itemCat).toLowerCase().trim();
+    const tc = String(targetCatId).toLowerCase().trim();
+    if (ic === tc) return true;
+    const catObj = allCategories.find((c) => c.id.toLowerCase() === tc || c.name.toLowerCase() === tc);
+    if (catObj) {
+      if (ic === catObj.id.toLowerCase() || ic === catObj.name.toLowerCase()) return true;
+    }
+    const stripAccents = (s) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (stripAccents(ic) === stripAccents(tc)) return true;
+    return false;
+  };
+
+  const items = menu.filter((m) => cat === 'all' ? true : normalizeCatMatch(m.category, cat));
   const recipeItem = menu.find((m) => m.id === recipeFor);
 
   return (
@@ -157,7 +186,7 @@ const MenuAdmin = () => {
             <Folder className="text-amber-500" size={18} />
             <h2 className="text-sm font-bold text-neutral-900 tracking-wide">ÉTLAP KATEGÓRIÁK</h2>
             <span className="text-xs bg-neutral-100 text-neutral-600 px-2 py-0.5 rounded-full font-semibold">
-              {currentCategories.length} kategória
+              {allCategories.length} kategória • {menu.length} étel összesen
             </span>
           </div>
 
@@ -175,8 +204,28 @@ const MenuAdmin = () => {
 
         {/* Category Tabs */}
         <div className="flex flex-wrap gap-2 items-center">
-          {currentCategories.map((c) => {
-            const count = menu.filter((m) => m.category === c.id).length;
+          {/* Összes étel tab */}
+          <button
+            type="button"
+            onClick={() => setCat('all')}
+            className={`group px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all inline-flex items-center gap-2 ${
+              cat === 'all'
+                ? 'bg-neutral-900 text-white border-neutral-900 shadow-xs ring-2 ring-neutral-400/30'
+                : 'bg-neutral-50 text-neutral-700 border-neutral-200 hover:bg-neutral-100 hover:border-neutral-300'
+            }`}
+          >
+            <span>🌟 Összes étel</span>
+            <span
+              className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                cat === 'all' ? 'bg-amber-400 text-black' : 'bg-neutral-200 text-neutral-600 group-hover:bg-neutral-300'
+              }`}
+            >
+              {menu.length}
+            </span>
+          </button>
+
+          {allCategories.map((c) => {
+            const count = menu.filter((m) => normalizeCatMatch(m.category, c.id)).length;
             const isSelected = cat === c.id;
             return (
               <button
@@ -229,7 +278,7 @@ const MenuAdmin = () => {
               }}
               className="text-xs font-bold text-neutral-900 bg-neutral-100 border border-neutral-300 rounded px-2.5 py-1 focus:outline-none focus:ring-1 focus:ring-amber-500"
             >
-              {currentCategories.map((c) => (
+              {allCategories.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
                 </option>
@@ -472,7 +521,7 @@ const MenuAdmin = () => {
                         onChange={(e) => setEd({ ...ed, category: e.target.value })}
                         className="text-[11px] px-1.5 py-0.5 border rounded bg-white text-neutral-700 font-semibold"
                       >
-                        {currentCategories.map((c) => (
+                        {allCategories.map((c) => (
                           <option key={c.id} value={c.id}>{c.name}</option>
                         ))}
                       </select>
@@ -563,7 +612,14 @@ const MenuAdmin = () => {
                       onError={(e) => { e.currentTarget.src = LOGO_URL; }}
                     />
                   </td>
-                  <td className="py-2.5 px-4 font-bold text-neutral-900">{m.name}</td>
+                  <td className="py-2.5 px-4 font-bold text-neutral-900">
+                    <div>{m.name}</div>
+                    {cat === 'all' && (
+                      <span className="inline-block mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-neutral-100 text-neutral-600 border border-neutral-200">
+                        {allCategories.find((c) => normalizeCatMatch(m.category, c.id))?.name || m.category}
+                      </span>
+                    )}
+                  </td>
                   <td className="py-2.5 px-4 text-neutral-600 max-w-xs truncate">{m.description}</td>
                   <td className="py-2.5 px-4 text-right font-extrabold text-neutral-900">{formatFt(m.price)}</td>
                   <td className="py-2.5 px-4 text-right text-neutral-700 font-medium">

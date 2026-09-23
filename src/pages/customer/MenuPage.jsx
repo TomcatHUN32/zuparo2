@@ -33,15 +33,26 @@ const MenuPage = () => {
     return list;
   }, [menu, categories]);
 
+  const normalizeCatMatch = (itemCat, targetCatId) => {
+    if (!itemCat || !targetCatId || targetCatId === 'all') return true;
+    const ic = String(itemCat).toLowerCase().trim();
+    const tc = String(targetCatId).toLowerCase().trim();
+    if (ic === tc) return true;
+    const catObj = dynamicCategories.find((c) => c.id.toLowerCase() === tc || c.name.toLowerCase() === tc);
+    if (catObj) {
+      if (ic === catObj.id.toLowerCase() || ic === catObj.name.toLowerCase()) return true;
+    }
+    const stripAccents = (s) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (stripAccents(ic) === stripAccents(tc)) return true;
+    if (tc.includes('pizza') && ic.includes('pizza')) return true;
+    if ((tc.includes('hazi') || tc.includes('hazias')) && (ic.includes('hazi') || ic.includes('hazias'))) return true;
+    if ((tc.includes('sult') || tc.includes('sült')) && (ic.includes('sult') || ic.includes('sült'))) return true;
+    if ((tc.includes('ital') || tc.includes('udit')) && (ic.includes('ital') || ic.includes('udit'))) return true;
+    return false;
+  };
+
   const items = menu.filter((m) => {
-    const matchCat =
-      cat === 'all' ||
-      m.category === cat ||
-      (m.category || '').toLowerCase() === cat.toLowerCase() ||
-      (cat === 'pizzak' && (m.category?.toLowerCase().includes('pizza') || m.name?.toLowerCase().includes('pizza'))) ||
-      (cat === 'hazias' && (m.category?.toLowerCase().includes('hazi') || m.category?.toLowerCase().includes('házias'))) ||
-      (cat === 'sultek' && (m.category?.toLowerCase().includes('sült') || m.category?.toLowerCase().includes('sult'))) ||
-      (cat === 'italok' && (m.category?.toLowerCase().includes('ital') || m.category?.toLowerCase().includes('üdítő')));
+    const matchCat = normalizeCatMatch(m.category, cat);
     const matchQuery = q ? (m.name + ' ' + (m.description || '')).toLowerCase().includes(q.toLowerCase()) : true;
     return matchCat && matchQuery;
   });

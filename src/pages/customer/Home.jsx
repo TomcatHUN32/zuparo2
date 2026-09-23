@@ -12,14 +12,13 @@ const Home = () => {
   const { menu, restaurantStatus, categories } = useData();
   const { add } = useCart();
   const displayCategories = categories && categories.length > 0 ? categories : CATEGORIES;
-  const featured = [
-    menu.find((m) => m.name?.includes('Sertéspörkölt')),
-    menu.find((m) => m.name?.includes('Csirkepaprikás')),
-    menu.find((m) => m.name?.includes('Rántott')),
-    menu.find((m) => m.name?.includes('pizza') || m.name?.includes('Pizza')),
-  ].filter(Boolean);
-
-  const displayFeatured = featured.length >= 2 ? featured : menu.slice(0, 4);
+  const displayFeatured = React.useMemo(() => {
+    if (!menu || menu.length === 0) return [];
+    const withImages = menu.filter((m) => m.available !== false && m.image);
+    if (withImages.length >= 4) return withImages.slice(0, 4);
+    const available = menu.filter((m) => m.available !== false);
+    return (available.length > 0 ? available : menu).slice(0, 4);
+  }, [menu]);
 
   return (
     <div>

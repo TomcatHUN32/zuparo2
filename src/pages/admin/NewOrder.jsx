@@ -19,14 +19,14 @@ const priceForChannel = (m, channel) => {
 };
 
 const NewOrder = () => {
-  const { menu, zones, couriers, customers, addOrder, validateCoupon, getZoneFee, restaurantStatus } = useData();
+  const { menu, zones, couriers, customers, addOrder, validateCoupon, getZoneFee, restaurantStatus, categories } = useData();
   const [customer, setCustomer] = useState({ name: '', phone: '' });
   const [address, setAddress] = useState({ zip: '3734', city: 'Szuhogy', street: '', floor: '', note: '' });
   const [orderType, setOrderType] = useState('delivery');
   const [payment, setPayment] = useState('cash');
   const [channel, setChannel] = useState('house');
   const [foodoraFee, setFoodoraFee] = useState(0);
-  const [activeCat, setActiveCat] = useState('pizzak');
+  const [activeCat, setActiveCat] = useState('all');
   const [search, setSearch] = useState('');
   const [cart, setCart] = useState([]);
   const [coupon, setCoupon] = useState('');
@@ -70,10 +70,41 @@ const NewOrder = () => {
     ? drsCount * (Number(restaurantStatus?.drsFee) || 50)
     : 0;
 
+  const allCategories = useMemo(() => {
+    const list = [{ id: 'all', name: 'Összes termék' }];
+    const seen = new Set(['all']);
+    const sourceCats = categories && categories.length > 0 ? categories : CATEGORIES;
+    sourceCats.forEach((c) => {
+      seen.add(c.id.toLowerCase());
+      list.push({ id: c.id, name: c.name });
+    });
+    menu.forEach((m) => {
+      if (m.category && !seen.has(m.category.toLowerCase())) {
+        seen.add(m.category.toLowerCase());
+        list.push({ id: m.category, name: m.category });
+      }
+    });
+    return list;
+  }, [categories, menu]);
+
+  const normalizeCatMatch = (itemCat, targetCatId) => {
+    if (!itemCat || !targetCatId || targetCatId === 'all') return true;
+    const ic = String(itemCat).toLowerCase().trim();
+    const tc = String(targetCatId).toLowerCase().trim();
+    if (ic === tc) return true;
+    const catObj = allCategories.find((c) => c.id.toLowerCase() === tc || c.name.toLowerCase() === tc);
+    if (catObj) {
+      if (ic === catObj.id.toLowerCase() || ic === catObj.name.toLowerCase()) return true;
+    }
+    const stripAccents = (s) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (stripAccents(ic) === stripAccents(tc)) return true;
+    return false;
+  };
+
   const filtered = useMemo(() => menu.filter((m) =>
-    (activeCat ? m.category === activeCat : true) &&
-    (search ? (m.name + ' ' + m.description).toLowerCase().includes(search.toLowerCase()) : true)
-  ), [menu, activeCat, search]);
+    normalizeCatMatch(m.category, activeCat) &&
+    (search ? (m.name + ' ' + (m.description || '')).toLowerCase().includes(search.toLowerCase()) : true)
+  ), [menu, activeCat, search, allCategories]);
 
   const addToCart = (m) => {
     const price = priceForChannel(m, channel);
@@ -253,8 +284,18 @@ const NewOrder = () => {
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Termék keresése..." className="w-full pl-9 pr-3 py-2.5 rounded-lg bg-neutral-50 border border-neutral-200 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900" />
           </div>
           <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2 mb-2">
-            {CATEGORIES.map((c) => (
-              <button key={c.id} onClick={() => setActiveCat(c.id)} className={`px-3 py-1.5 rounded-md text-sm whitespace-nowrap border ${activeCat === c.id ? 'bg-neutral-900 text-white border-neutral-900' : 'bg-white text-neutral-700 border-neutral-200 hover:bg-neutral-50'}`}>{c.name}</button>
+            {allCategories.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => setActiveCat(c.id)}
+                className={`px-3 py-1.5 rounded-md text-sm whitespace-nowrap border transition-all ${
+                  activeCat === c.id
+                    ? 'bg-neutral-900 text-white border-neutral-900 font-bold'
+                    : 'bg-white text-neutral-700 border-neutral-200 hover:bg-neutral-50'
+                }`}
+              >
+                {c.name}
+              </button>
             ))}
           </div>
           <div className="space-y-2 max-h-[560px] overflow-y-auto pr-1">
