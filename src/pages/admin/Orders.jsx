@@ -6,7 +6,9 @@ import { KitchenTicketModal } from '../../components/KitchenTicketModal';
 import { toast } from 'sonner';
 
 const Orders = () => {
-  const { orders, couriers, updateOrder, deleteOrder, menu } = useData();
+  const { orders, couriers, updateOrder, deleteOrder, menu, currentBudapestDate } = useData();
+  const [dateMode, setDateMode] = useState('today'); // 'today' | 'yesterday' | 'all' | 'custom'
+  const [customDate, setCustomDate] = useState('');
   const [filter, setFilter] = useState('all');
   const [channelFilter, setChannelFilter] = useState('all');
   const [editing, setEditing] = useState(null);
@@ -17,12 +19,51 @@ const Orders = () => {
   const [customStornoReason, setCustomStornoReason] = useState('');
   const [stornoLoading, setStornoLoading] = useState(false);
 
+  const getBudapestDateOfOrder = (createdAt) => {
+    try {
+      const d = new Date(createdAt);
+      if (!isNaN(d.getTime())) {
+        return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Budapest' }).format(d);
+      }
+    } catch {}
+    return createdAt ? createdAt.split('T')[0] : '';
+  };
+
+  const getYesterdayDate = () => {
+    try {
+      const base = currentBudapestDate ? new Date(currentBudapestDate) : new Date();
+      base.setDate(base.getDate() - 1);
+      return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Budapest' }).format(base);
+    } catch {
+      return '';
+    }
+  };
+
+  const yesterdayDate = getYesterdayDate();
+
+  const todayOrdersCount = useMemo(() => {
+    return orders.filter((o) => getBudapestDateOfOrder(o.createdAt) === currentBudapestDate).length;
+  }, [orders, currentBudapestDate]);
+
+  const yesterdayOrdersCount = useMemo(() => {
+    return orders.filter((o) => getBudapestDateOfOrder(o.createdAt) === yesterdayDate).length;
+  }, [orders, yesterdayDate]);
+
   const toggle = (id) => setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
 
   const filtered = useMemo(() => {
     return orders.filter((o) => {
+      // Date filter
+      const oDate = getBudapestDateOfOrder(o.createdAt);
+      if (dateMode === 'today' && oDate !== currentBudapestDate) return false;
+      if (dateMode === 'yesterday' && oDate !== yesterdayDate) return false;
+      if (dateMode === 'custom' && customDate && oDate !== customDate) return false;
+
+      // Status filter
       const matchesStatus = filter === 'all' || o.status === filter;
       if (!matchesStatus) return false;
+
+      // Channel filter
       if (channelFilter === 'all') return true;
       if (channelFilter === 'foodora') return o.channel === 'foodora';
       if (channelFilter === 'falatozz') return o.channel === 'falatozz';
@@ -31,7 +72,7 @@ const Orders = () => {
       }
       return true;
     });
-  }, [orders, filter, channelFilter]);
+  }, [orders, filter, channelFilter, dateMode, customDate, currentBudapestDate, yesterdayDate]);
 
   const renderChannelBadge = (o) => {
     const ch = (o.channel || '').toLowerCase();
@@ -97,6 +138,77 @@ const Orders = () => {
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-4">
+      {/* 24/7 Midnight Rollover & Date Selector Bar */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-neutral-900 text-white p-3.5 rounded-xl border border-neutral-800 shadow-sm">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+            </span>
+            <span className="font-extrabold text-sm tracking-wide text-amber-300">
+              {dateMode === 'today'
+                ? `Mai rendelések (${currentBudapestDate})`
+                : dateMode === 'yesterday'
+                ? `Tegnapi nap (${yesterdayDate})`
+                : dateMode === 'custom'
+                ? `Kiválasztott nap: ${customDate}`
+                : 'Teljes rendelési archívum'}
+            </span>
+          </div>
+          <span className="text-[11px] text-neutral-400 hidden xl:inline">
+            (Éjfélkor automatikusan lezárja és archiválja a napot, és tiszta új napot indít)
+          </span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1.5 bg-neutral-800/80 p-1 rounded-lg border border-neutral-700">
+          <button
+            type="button"
+            onClick={() => setDateMode('today')}
+            className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
+              dateMode === 'today'
+                ? 'bg-amber-400 text-neutral-950 shadow-xs'
+                : 'text-neutral-300 hover:text-white hover:bg-neutral-700'
+            }`}
+          >
+            Mai nap ({todayOrdersCount})
+          </button>
+          <button
+            type="button"
+            onClick={() => setDateMode('yesterday')}
+            className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
+              dateMode === 'yesterday'
+                ? 'bg-amber-400 text-neutral-950 shadow-xs'
+                : 'text-neutral-300 hover:text-white hover:bg-neutral-700'
+            }`}
+          >
+            Tegnap ({yesterdayOrdersCount})
+          </button>
+          <button
+            type="button"
+            onClick={() => setDateMode('all')}
+            className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
+              dateMode === 'all'
+                ? 'bg-amber-400 text-neutral-950 shadow-xs'
+                : 'text-neutral-300 hover:text-white hover:bg-neutral-700'
+            }`}
+          >
+            Összes ({orders.length})
+          </button>
+          <div className="flex items-center gap-1 pl-1 border-l border-neutral-700">
+            <input
+              type="date"
+              value={customDate}
+              onChange={(e) => {
+                setCustomDate(e.target.value);
+                if (e.target.value) setDateMode('custom');
+              }}
+              className="px-2 py-1 text-xs bg-neutral-900 border border-neutral-700 rounded text-neutral-200 focus:outline-none focus:border-amber-400 cursor-pointer"
+            />
+          </div>
+        </div>
+      </div>
+
       {/* Filters bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-neutral-200">
         <div className="flex flex-wrap gap-2 items-center">

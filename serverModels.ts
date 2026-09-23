@@ -381,3 +381,20 @@ const CitySchema = new Schema<ICity>(
 
 export const CityModel = mongoose.models.City || mongoose.model<ICity>('City', CitySchema);
 
+// Category Schema
+export interface ICategory extends Document {
+  id: string;
+  name: string;
+  icon?: string;
+  order?: number;
+}
+
+const CategorySchema = new Schema<ICategory>({
+  id: { type: String, required: true, unique: true },
+  name: { type: String, required: true },
+  icon: { type: String, default: 'Utensils' },
+  order: { type: Number, default: 0 },
+});
+
+export const CategoryModel = mongoose.models.Category || mongoose.model<ICategory>('Category', CategorySchema);
+

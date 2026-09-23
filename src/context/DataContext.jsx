@@ -9,12 +9,14 @@ import {
   testSound,
   setAudioMuted,
 } from '../utils/soundAlert';
+import { CATEGORIES as INITIAL_CATEGORIES } from '../mock/mockData';
 
 const API = (typeof process !== 'undefined' && process.env?.REACT_APP_BACKEND_URL ? process.env.REACT_APP_BACKEND_URL : '') + '/api';
 const DataContext = createContext(null);
 
 export const DataProvider = ({ children }) => {
   const { user, ready } = useAuth();
+  const [categories, setCategories] = useState(INITIAL_CATEGORIES);
   const [menu, setMenu] = useState([]);
   const [zones, setZones] = useState([]);
   const [couriers, setCouriers] = useState([]);
@@ -42,20 +44,39 @@ export const DataProvider = ({ children }) => {
     }
   });
 
+  // Automatically update Budapest date when midnight passes
+  useEffect(() => {
+    const timer = setInterval(() => {
+      try {
+        const nowBudapest = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Budapest' }).format(new Date());
+        setCurrentBudapestDate((prev) => {
+          if (prev !== nowBudapest) {
+            console.log(`[Budapest Rollover] Date flipped from ${prev} to ${nowBudapest}`);
+            return nowBudapest;
+          }
+          return prev;
+        });
+      } catch {}
+    }, 15000);
+    return () => clearInterval(timer);
+  }, []);
+
   // Ref to track seen orders to detect fresh incoming ones
   const seenOrderIdsRef = useRef(new Set());
   const isFirstLoadRef = useRef(true);
 
   const loadPublic = useCallback(async () => {
-    const [m, z, c, cp, rs] = await Promise.all([
+    const [m, z, c, cp, rs, cats] = await Promise.all([
       axios.get(`${API}/menu`).then((r) => r.data).catch(() => []),
       axios.get(`${API}/zones`).then((r) => r.data).catch(() => []),
       axios.get(`${API}/couriers`).then((r) => r.data).catch(() => []),
       axios.get(`${API}/coupons`).then((r) => r.data).catch(() => []),
       axios.get(`${API}/restaurant/status`).then((r) => r.data).catch(() => null),
+      axios.get(`${API}/categories`).then((r) => r.data).catch(() => []),
     ]);
     setMenu(m); setZones(z); setCouriers(c); setCoupons(cp);
     if (rs) setRestaurantStatus(rs);
+    if (Array.isArray(cats) && cats.length > 0) setCategories(cats);
   }, []);
 
   const loadAdmin = useCallback(async () => {
@@ -334,6 +355,22 @@ export const DataProvider = ({ children }) => {
     return data;
   };
 
+  // -------- Categories --------
+  const addCategory = async (catData) => {
+    const { data } = await axios.post(`${API}/categories`, catData);
+    setCategories((prev) => [...prev, data]);
+    return data;
+  };
+  const updateCategory = async (id, patch) => {
+    const { data } = await axios.put(`${API}/categories/${id}`, patch);
+    setCategories((prev) => prev.map((c) => (c.id === id ? data : c)));
+    return data;
+  };
+  const deleteCategory = async (id) => {
+    await axios.delete(`${API}/categories/${id}`);
+    setCategories((prev) => prev.filter((c) => c.id !== id));
+  };
+
   const uploadFoodImage = async (imageData) => {
     const { data } = await axios.post(`${API}/upload/image`, { image: imageData });
     return data.url;
@@ -341,6 +378,7 @@ export const DataProvider = ({ children }) => {
 
   return (
     <DataContext.Provider value={{
+      categories, addCategory, updateCategory, deleteCategory,
       menu, zones, couriers, customers, inventory, orders, coupons, loaded,
       addOrder, updateOrder, deleteOrder,
       addMenuItem, updateMenuItem, deleteMenuItem,

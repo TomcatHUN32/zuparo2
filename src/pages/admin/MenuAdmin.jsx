@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useData } from '../../context/DataContext';
-import { CATEGORIES, formatFt, LOGO_URL } from '../../mock/mockData';
-import { Plus, Trash2, Pencil, Check, X, ChefHat, Upload, Link as LinkIcon, Image as ImageIcon, Scale, ArrowRight, Package, Recycle } from 'lucide-react';
+import { CATEGORIES as INITIAL_CATEGORIES, formatFt, LOGO_URL } from '../../mock/mockData';
+import { Plus, Trash2, Pencil, Check, X, ChefHat, Upload, Link as LinkIcon, Image as ImageIcon, Scale, ArrowRight, Package, Recycle, FolderPlus, Settings2, Folder } from 'lucide-react';
 import { toast } from 'sonner';
 import { convertUnit, getRecipeUnitsForBaseUnit, getDefaultRecipeUnit } from '../../utils/units';
 
@@ -18,15 +18,80 @@ const empty = {
 };
 
 const MenuAdmin = () => {
-  const { menu, inventory, addMenuItem, updateMenuItem, deleteMenuItem } = useData();
-  const [cat, setCat] = useState('pizzak');
-  const [draft, setDraft] = useState(empty);
+  const { menu, inventory, addMenuItem, updateMenuItem, deleteMenuItem, categories, addCategory, updateCategory, deleteCategory } = useData();
+  const currentCategories = categories && categories.length > 0 ? categories : INITIAL_CATEGORIES;
+  const [cat, setCat] = useState(() => currentCategories[0]?.id || 'pizzak');
+  const [draft, setDraft] = useState(() => ({ ...empty, category: currentCategories[0]?.id || 'pizzak' }));
   const [editing, setEditing] = useState(null);
   const [ed, setEd] = useState(empty);
   const [recipeFor, setRecipeFor] = useState(null); // menu item id
   const [imageMode, setImageMode] = useState('pc'); // 'pc' | 'url'
   const fileInputRef = useRef(null);
   const editFileInputRef = useRef(null);
+
+  // Category Management State
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [newCatName, setNewCatName] = useState('');
+  const [editingCatId, setEditingCatId] = useState(null);
+  const [editingCatName, setEditingCatName] = useState('');
+  const [catLoading, setCatLoading] = useState(false);
+
+  const handleCreateCategory = async (e) => {
+    if (e) e.preventDefault();
+    if (!newCatName.trim()) return toast.error('Kérjük, add meg a kategória nevét!');
+    setCatLoading(true);
+    try {
+      const created = await addCategory({ name: newCatName.trim() });
+      setNewCatName('');
+      setCat(created.id);
+      setDraft((prev) => ({ ...prev, category: created.id }));
+      toast.success(`"${created.name}" kategória sikeresen létrehozva!`);
+    } catch (err) {
+      toast.error('Hiba a kategória létrehozásakor');
+    } finally {
+      setCatLoading(false);
+    }
+  };
+
+  const handleUpdateCategory = async (id) => {
+    if (!editingCatName.trim()) return toast.error('A kategória neve nem lehet üres!');
+    setCatLoading(true);
+    try {
+      await updateCategory(id, { name: editingCatName.trim() });
+      setEditingCatId(null);
+      setEditingCatName('');
+      toast.success('Kategória sikeresen átnevezve!');
+    } catch (err) {
+      toast.error('Hiba a kategória módosításakor');
+    } finally {
+      setCatLoading(false);
+    }
+  };
+
+  const handleDeleteCategory = async (id, name) => {
+    const dishesInCat = menu.filter((m) => m.category === id);
+    let confirmMsg = `Biztosan törölni szeretnéd a(z) "${name}" kategóriát?`;
+    if (dishesInCat.length > 0) {
+      confirmMsg = `Figyelem! Ebben a kategóriában (${name}) jelenleg ${dishesInCat.length} db étel van!\n\nBiztosan törlöd a kategóriát?`;
+    }
+    if (!window.confirm(confirmMsg)) return;
+
+    setCatLoading(true);
+    try {
+      await deleteCategory(id);
+      if (cat === id) {
+        const remaining = currentCategories.filter((c) => c.id !== id);
+        const nextId = remaining[0]?.id || '';
+        setCat(nextId);
+        setDraft((prev) => ({ ...prev, category: nextId }));
+      }
+      toast.success(`"${name}" kategória sikeresen törölve.`);
+    } catch (err) {
+      toast.error('Hiba a kategória törlésekor');
+    } finally {
+      setCatLoading(false);
+    }
+  };
 
   const handleFileChange = (e, isEdit = false) => {
     const file = e.target.files?.[0];
@@ -73,6 +138,7 @@ const MenuAdmin = () => {
       priceFalatozz: ed.priceFalatozz ? Number(ed.priceFalatozz) : null,
       packagingFee: ed.packagingFee !== '' && ed.packagingFee !== null && ed.packagingFee !== undefined ? Math.max(0, Number(ed.packagingFee) || 0) : 0,
       drsFeeEnabled: Boolean(ed.drsFeeEnabled),
+      category: ed.category || cat,
       image: ed.image || '',
     });
     setEditing(null);
@@ -84,26 +150,92 @@ const MenuAdmin = () => {
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-6">
-      {/* Category selector */}
-      <div className="flex flex-wrap gap-2">
-        {CATEGORIES.map((c) => (
+      {/* Category selector & Management Header */}
+      <div className="bg-white rounded-xl border border-neutral-200 p-4 shadow-xs space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-100 pb-3">
+          <div className="flex items-center gap-2">
+            <Folder className="text-amber-500" size={18} />
+            <h2 className="text-sm font-bold text-neutral-900 tracking-wide">ÉTLAP KATEGÓRIÁK</h2>
+            <span className="text-xs bg-neutral-100 text-neutral-600 px-2 py-0.5 rounded-full font-semibold">
+              {currentCategories.length} kategória
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowCategoryModal(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-neutral-900 text-white hover:bg-neutral-800 transition-colors shadow-xs"
+            >
+              <Settings2 size={14} />
+              Kategóriák kezelése (Új / Szerkesztés / Törlés)
+            </button>
+          </div>
+        </div>
+
+        {/* Category Tabs */}
+        <div className="flex flex-wrap gap-2 items-center">
+          {currentCategories.map((c) => {
+            const count = menu.filter((m) => m.category === c.id).length;
+            const isSelected = cat === c.id;
+            return (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => {
+                  setCat(c.id);
+                  setDraft((prev) => ({ ...prev, category: c.id }));
+                }}
+                className={`group px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all inline-flex items-center gap-2 ${
+                  isSelected
+                    ? 'bg-amber-500 text-neutral-950 border-amber-500 shadow-xs ring-2 ring-amber-400/30'
+                    : 'bg-neutral-50 text-neutral-700 border-neutral-200 hover:bg-neutral-100 hover:border-neutral-300'
+                }`}
+              >
+                <span>{c.name}</span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                    isSelected ? 'bg-neutral-950 text-amber-400' : 'bg-neutral-200 text-neutral-600 group-hover:bg-neutral-300'
+                  }`}
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+          
           <button
-            key={c.id}
-            onClick={() => { setCat(c.id); setDraft({ ...empty, category: c.id }); }}
-            className={`px-3 py-1.5 rounded-md text-sm border font-medium transition-colors ${
-              cat === c.id ? 'bg-neutral-900 text-white border-neutral-900' : 'bg-white text-neutral-700 border-neutral-200 hover:bg-neutral-50'
-            }`}
+            type="button"
+            onClick={() => setShowCategoryModal(true)}
+            className="px-3 py-1.5 rounded-lg text-xs font-bold border border-dashed border-neutral-300 text-neutral-600 hover:text-neutral-900 hover:border-neutral-400 hover:bg-neutral-50 inline-flex items-center gap-1 transition-all"
           >
-            {c.name}
+            <Plus size={13} />
+            Új kategória
           </button>
-        ))}
+        </div>
       </div>
 
       {/* New Food Item Form */}
       <div className="bg-white rounded-xl border border-neutral-200 p-5 shadow-xs">
         <h3 className="text-base font-bold text-neutral-900 mb-3 flex items-center justify-between">
           <span>Új termék hozzáadása</span>
-          <span className="text-xs font-normal text-neutral-500">Kategória: <b className="text-neutral-900">{CATEGORIES.find((c) => c.id === cat)?.name}</b></span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-normal text-neutral-500">Célkategória:</span>
+            <select
+              value={draft.category || cat}
+              onChange={(e) => {
+                setDraft({ ...draft, category: e.target.value });
+                setCat(e.target.value);
+              }}
+              className="text-xs font-bold text-neutral-900 bg-neutral-100 border border-neutral-300 rounded px-2.5 py-1 focus:outline-none focus:ring-1 focus:ring-amber-500"
+            >
+              {currentCategories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
         </h3>
 
         <div className="space-y-4">
@@ -331,8 +463,20 @@ const MenuAdmin = () => {
                     <input
                       value={ed.name}
                       onChange={(e) => setEd({ ...ed, name: e.target.value })}
-                      className="w-full px-2 py-1 border rounded bg-white"
+                      className="w-full px-2 py-1 border rounded bg-white font-medium"
                     />
+                    <div className="mt-1 flex items-center gap-1">
+                      <span className="text-[10px] text-neutral-400 font-medium">Kategória:</span>
+                      <select
+                        value={ed.category || cat}
+                        onChange={(e) => setEd({ ...ed, category: e.target.value })}
+                        className="text-[11px] px-1.5 py-0.5 border rounded bg-white text-neutral-700 font-semibold"
+                      >
+                        {currentCategories.map((c) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                    </div>
                   </td>
                   <td className="py-3 px-4">
                     <input
@@ -521,6 +665,188 @@ const MenuAdmin = () => {
           onSave={async (recipe) => { await updateMenuItem(recipeItem.id, { recipe }); toast.success('Recept mentve'); setRecipeFor(null); }}
         />
       )}
+
+      {showCategoryModal && (
+        <CategoryModal
+          categories={currentCategories}
+          menu={menu}
+          onClose={() => {
+            setShowCategoryModal(false);
+            setEditingCatId(null);
+            setEditingCatName('');
+          }}
+          newCatName={newCatName}
+          setNewCatName={setNewCatName}
+          onCreateCategory={handleCreateCategory}
+          editingCatId={editingCatId}
+          setEditingCatId={setEditingCatId}
+          editingCatName={editingCatName}
+          setEditingCatName={setEditingCatName}
+          onUpdateCategory={handleUpdateCategory}
+          onDeleteCategory={handleDeleteCategory}
+          loading={catLoading}
+        />
+      )}
+    </div>
+  );
+};
+
+const CategoryModal = ({
+  categories,
+  menu,
+  onClose,
+  newCatName,
+  setNewCatName,
+  onCreateCategory,
+  editingCatId,
+  setEditingCatId,
+  editingCatName,
+  setEditingCatName,
+  onUpdateCategory,
+  onDeleteCategory,
+  loading,
+}) => {
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-xs">
+      <div className="bg-white rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl border border-neutral-200">
+        {/* Header */}
+        <div className="px-6 py-4 bg-neutral-900 text-white flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <Settings2 className="text-amber-400" size={20} />
+            <div>
+              <h3 className="font-bold text-base text-white">Kategóriák kezelése</h3>
+              <p className="text-xs text-neutral-400">Új létrehozása, szerkesztése vagy törlése</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-neutral-400 hover:text-white h-8 w-8 rounded-lg flex items-center justify-center hover:bg-neutral-800 transition-colors"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-6 max-h-[75vh] overflow-y-auto">
+          {/* Create new category */}
+          <div className="p-4 rounded-xl bg-amber-50 border border-amber-200">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-amber-900 mb-2 flex items-center gap-1.5">
+              <FolderPlus size={14} className="text-amber-700" />
+              Új kategória létrehozása
+            </h4>
+            <form onSubmit={onCreateCategory} className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Pl. Hamburgerek, Levesek, Saláták..."
+                value={newCatName}
+                onChange={(e) => setNewCatName(e.target.value)}
+                className="flex-1 px-3 py-2 text-sm bg-white border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+              />
+              <button
+                type="submit"
+                disabled={loading || !newCatName.trim()}
+                className="px-4 py-2 bg-neutral-900 hover:bg-neutral-800 disabled:opacity-50 text-white rounded-lg text-xs font-bold inline-flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
+              >
+                <Plus size={14} />
+                Létrehozás
+              </button>
+            </form>
+          </div>
+
+          {/* List of categories */}
+          <div className="space-y-2.5">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-500">
+              Meglévő kategóriák ({categories.length})
+            </h4>
+
+            <div className="divide-y divide-neutral-100 border border-neutral-200 rounded-xl overflow-hidden bg-white shadow-xs">
+              {categories.map((c) => {
+                const dishCount = menu.filter((m) => m.category === c.id).length;
+                const isEditing = editingCatId === c.id;
+
+                return (
+                  <div key={c.id} className="p-3.5 flex items-center justify-between gap-3 hover:bg-neutral-50/80 transition-colors">
+                    {isEditing ? (
+                      <div className="flex-1 flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={editingCatName}
+                          onChange={(e) => setEditingCatName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') onUpdateCategory(c.id);
+                            if (e.key === 'Escape') setEditingCatId(null);
+                          }}
+                          autoFocus
+                          className="flex-1 px-2.5 py-1 text-sm border border-amber-400 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => onUpdateCategory(c.id)}
+                          className="p-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md transition-colors"
+                          title="Mentés"
+                        >
+                          <Check size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingCatId(null)}
+                          className="p-1.5 bg-neutral-200 hover:bg-neutral-300 text-neutral-700 rounded-md transition-colors"
+                          title="Mégse"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className="font-semibold text-sm text-neutral-900 truncate">
+                            {c.name}
+                          </span>
+                          <span className="text-[11px] px-2 py-0.5 rounded-full font-medium bg-neutral-100 text-neutral-600">
+                            {dishCount} db étel
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingCatId(c.id);
+                              setEditingCatName(c.name);
+                            }}
+                            className="p-1.5 rounded-md text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 border border-transparent hover:border-neutral-200 transition-colors"
+                            title="Átnevezés"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onDeleteCategory(c.id, c.name)}
+                            className="p-1.5 rounded-md text-rose-500 hover:text-rose-700 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition-colors"
+                            title="Kategória törlése"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-3.5 bg-neutral-50 border-t border-neutral-200 flex justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 rounded-lg bg-neutral-900 text-white text-xs font-bold hover:bg-neutral-800 transition-colors cursor-pointer"
+          >
+            Kész / Bezárás
+          </button>
+        </div>
+      </div>
     </div>
   );
 };

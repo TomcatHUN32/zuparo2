@@ -9,35 +9,29 @@ import { toast } from 'sonner';
 const MIN_ORDER = 2500;
 
 const MenuPage = () => {
-  const { menu, restaurantStatus } = useData();
+  const { menu, restaurantStatus, categories } = useData();
   const { add, count, subtotal } = useCart();
   const nav = useNavigate();
   const [cat, setCat] = useState('all');
   const [q, setQ] = useState('');
 
-  // Dynamic categories collected from actual menu items + default categories
+  // Dynamic categories collected from database categories + active menu items
   const dynamicCategories = React.useMemo(() => {
     const list = [{ id: 'all', name: 'Összes étel' }];
     const seen = new Set();
-    // First add from active menu items
+    const sourceCats = categories && categories.length > 0 ? categories : CATEGORIES;
+    sourceCats.forEach((c) => {
+      seen.add(c.id.toLowerCase());
+      list.push({ id: c.id, name: c.name });
+    });
     menu.forEach((m) => {
       if (m.category && !seen.has(m.category.toLowerCase())) {
         seen.add(m.category.toLowerCase());
         list.push({ id: m.category, name: m.category });
       }
     });
-    // Add default categories if not already present
-    CATEGORIES.forEach((c) => {
-      const match = list.find((item) =>
-        item.name.toLowerCase().includes(c.name.toLowerCase()) ||
-        c.name.toLowerCase().includes(item.name.toLowerCase())
-      );
-      if (!match) {
-        list.push(c);
-      }
-    });
     return list;
-  }, [menu]);
+  }, [menu, categories]);
 
   const items = menu.filter((m) => {
     const matchCat =

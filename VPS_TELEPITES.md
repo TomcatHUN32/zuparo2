@@ -58,23 +58,22 @@ sudo systemctl status mongod
 
 ## 📦 5. Projekt letöltése / klónozása a szerverre
 
-Hozzuk létre a weboldal könyvtárát a `/var/www/zuparo` mappában:
+Hozzuk létre a weboldal könyvtárát a `/var/www/food2` mappában (vagy töröljük a régit, ha tiszta telepítést végzünk):
 
 ```bash
-sudo mkdir -p /var/www/zuparo
-sudo chown -R $USER:$USER /var/www/zuparo
-cd /var/www/zuparo
+# Ha már létezik egy régi verzió, töröljük le teljesen:
+sudo rm -rf /var/www/food2
 
-# Ha gitről húzod le:
-# git clone <REPOD_URL> .
-# Vagy másold ide a projekt fájljait (pl. scp / rsync / FileZilla)
+# Klónozzuk a legfrissebb repót:
+sudo git clone https://github.com/TomcatHUN32/zuparo2.git /var/www/food2
+sudo chown -R $USER:$USER /var/www/food2
+cd /var/www/food2
 ```
 
 Telepítsd a függőségeket és futtasd le a buildet:
 
 ```bash
-cd /var/www/zuparo
-# Ha bármilyen régebbi npm peer dependency ütközést jelezne a szerveren: npm install --legacy-peer-deps
+cd /var/www/food2
 npm install
 npm run build
 ```
@@ -86,7 +85,7 @@ npm run build
 Hozd létre a `.env` fájlt:
 
 ```bash
-nano /var/www/zuparo/.env
+nano /var/www/food2/.env
 ```
 
 Illeszd be az alábbi tartalmat (állítsd be a saját titkos kulcsodat és domain címedet):
@@ -98,7 +97,7 @@ NODE_ENV=production
 TZ=Europe/Budapest
 MONGO_URI=mongodb://127.0.0.1:27017/szesztestverek
 JWT_SECRET=szesztestverek_jwt_secret_production_key_2026
-APP_URL=https://rendeles.zuparo.hu
+APP_URL=https://zuparo.hu
 ```
 Mentés: `Ctrl + O`, majd `Enter`, kilépés: `Ctrl + X`.
 
@@ -111,9 +110,12 @@ A **PM2** gondoskodik róla, hogy az alkalmazás a háttérben fusson, hiba eset
 ```bash
 sudo npm install -g pm2
 
+# Régi folyamatok leállítása és törlése (ha volt):
+pm2 delete all 2>/dev/null || true
+
 # Indítás PM2-vel
-cd /var/www/zuparo
-pm2 start dist/server.cjs --name "zuparo"
+cd /var/www/food2
+pm2 start dist/server.js --name "food2"
 
 # Mentés, hogy szerver reboot esetén is automatikusan elinduljon:
 pm2 save
@@ -123,7 +125,7 @@ pm2 startup
 # Állapot ellenőrzése:
 pm2 status
 # Logok megtekintése:
-pm2 logs zuparo
+pm2 logs food2
 ```
 
 ---
@@ -136,11 +138,11 @@ Másold be az elkészített `nginx.conf` konfigurációt:
 sudo nano /etc/nginx/sites-available/zuparo.conf
 ```
 
-*(Illeszd be a projekt gyökerében található `nginx.conf` tartalmát, a szervernevet igazítsd a te domainedhez: pl. `rendeles.zuparo.hu`)*
+*(Illeszd be a projekt gyökerében található `nginx.conf` tartalmát, a szervernév: `zuparo.hu www.zuparo.hu`)*
 
 Aktiváld az oldalt:
 ```bash
-sudo ln -s /etc/nginx/sites-available/zuparo.conf /etc/nginx/sites-enabled/
+sudo ln -sf /etc/nginx/sites-available/zuparo.conf /etc/nginx/sites-enabled/
 # Alapértelmezett Nginx oldal letiltása (ha van):
 sudo rm -f /etc/nginx/sites-enabled/default
 
@@ -156,7 +158,8 @@ sudo systemctl reload nginx
 ## 🔒 9. Ingyenes SSL Tanúsítvány (HTTPS - Let's Encrypt)
 
 ```bash
-sudo certbot --nginx -d rendeles.zuparo.hu
+sudo apt install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d zuparo.hu -d www.zuparo.hu
 ```
 A Certbot automatikusan bekonfigurálja a HTTPS-t és megújítja a tanúsítványt 3 havonta.
 
@@ -164,14 +167,14 @@ A Certbot automatikusan bekonfigurálja a HTTPS-t és megújítja a tanúsítvá
 
 ## 🎯 10. Kész! Tesztelés & Karbantartás
 
-Nyisd meg a böngészőben: `https://rendeles.zuparo.hu`
-- Adminisztrációs felület: `https://rendeles.zuparo.hu/belepes`
+Nyisd meg a böngészőben: `https://zuparo.hu`
+- Adminisztrációs felület: `https://zuparo.hu/belepes`
 - Alapértelmezett admin belépés (első indításkor automatikusan létrejön a MongoDB-ben):
   - **Email:** `admin@zuparo.hu`
   - **Jelszó:** `admin123`
 
 ### Hasznos parancsok a mindennapi karbantartáshoz:
-- **Alkalmazás újraindítása:** `pm2 restart zuparo`
-- **Alkalmazás logjai (hibák, rendelések):** `pm2 logs zuparo`
+- **Alkalmazás újraindítása:** `pm2 restart food2`
+- **Alkalmazás logjai (hibák, rendelések):** `pm2 logs food2`
 - **MongoDB állapot:** `sudo systemctl status mongod`
 - **Nginx állapot:** `sudo systemctl status nginx`

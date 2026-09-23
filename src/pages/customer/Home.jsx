@@ -9,8 +9,9 @@ import { toast } from 'sonner';
 const ICONS = { Pizza, Beef, Utensils, Wheat, Salad, Popcorn, CakeSlice, CupSoda };
 
 const Home = () => {
-  const { menu, restaurantStatus } = useData();
+  const { menu, restaurantStatus, categories } = useData();
   const { add } = useCart();
+  const displayCategories = categories && categories.length > 0 ? categories : CATEGORIES;
   const featured = [
     menu.find((m) => m.name?.includes('Sertéspörkölt')),
     menu.find((m) => m.name?.includes('Csirkepaprikás')),
@@ -59,7 +60,7 @@ const Home = () => {
       {/* Category strip */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 -mt-2 sm:-mt-4">
         <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-2.5 sm:gap-3">
-          {CATEGORIES.slice(0, 8).map((c, i) => {
+          {displayCategories.slice(0, 8).map((c, i) => {
             const Icon = ICONS[c.icon] || Utensils;
             return (
               <Link key={c.id} to="/etlap" className={`rounded-2xl border p-3 sm:p-4 flex flex-col items-center justify-center text-center card-hover transition-all ${i === 0 ? 'border-[#d4af37] bg-neutral-900' : 'border-neutral-800 bg-neutral-900/60 hover:border-[#d4af37]'}`}>

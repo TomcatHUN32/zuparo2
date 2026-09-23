@@ -30,6 +30,7 @@ import cityRoutes from './server/routes/cities';
 import favoriteRoutes from './server/routes/favorites';
 import userRoutes from './server/routes/user';
 import stripeRoutes from './server/routes/stripe';
+import categoryRoutes from './server/routes/categories';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -40,6 +41,7 @@ app.use(cors());
 app.use(express.json());
 
 // Mount modular routes for backwards and forwards compatibility
+app.use('/api/categories', categoryRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/cities', cityRoutes);
 app.use('/api/reviews', reviewRoutes);
@@ -2302,27 +2304,25 @@ setInterval(() => {
       const prevDate = lastCheckedDate;
       lastCheckedDate = currentDate;
 
-      // Auto-archive previous day closing if orders exist and not archived yet
+      // Auto-archive previous day closing if not archived yet
       const alreadyClosed = dayCloses.some((c) => c.date === prevDate);
       if (!alreadyClosed) {
         const prevReport = getReportDataForDate(prevDate);
-        if (prevReport.totalOrdersCount > 0) {
-          const autoCloseEntry: DayClose = {
-            id: crypto.randomUUID(),
-            date: prevDate,
-            orders: prevReport.orders,
-            revenue: prevReport.revenue,
-            byPayment: prevReport.byPayment,
-            byChannel: prevReport.byChannel,
-            byCourier: prevReport.byCourier,
-            closedAt: new Date().toISOString(),
-          };
-          dayCloses.unshift(autoCloseEntry);
-          if (isMongoConnected) {
-            DayCloseModel.findOneAndUpdate({ date: prevDate }, autoCloseEntry, { upsert: true }).catch((e) => console.error(e));
-          }
-          console.log(`[Midnight Rollover] Successfully auto-archived closing for date: ${prevDate}`);
+        const autoCloseEntry: DayClose = {
+          id: crypto.randomUUID(),
+          date: prevDate,
+          orders: prevReport.orders,
+          revenue: prevReport.revenue,
+          byPayment: prevReport.byPayment,
+          byChannel: prevReport.byChannel,
+          byCourier: prevReport.byCourier,
+          closedAt: new Date().toISOString(),
+        };
+        dayCloses.unshift(autoCloseEntry);
+        if (isMongoConnected) {
+          DayCloseModel.findOneAndUpdate({ date: prevDate }, autoCloseEntry, { upsert: true }).catch((e) => console.error(e));
         }
+        console.log(`[Midnight Rollover] Successfully auto-archived closing for date: ${prevDate} (Orders: ${prevReport.orders}, Revenue: ${prevReport.revenue} Ft)`);
       }
     }
   } catch (err) {
