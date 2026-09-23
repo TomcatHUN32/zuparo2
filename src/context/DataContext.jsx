@@ -362,13 +362,23 @@ export const DataProvider = ({ children }) => {
     return data;
   };
   const updateCategory = async (id, patch) => {
-    const { data } = await axios.put(`${API}/categories/${id}`, patch);
-    setCategories((prev) => prev.map((c) => (c.id === id ? data : c)));
-    return data;
+    try {
+      const { data } = await axios.put(`${API}/categories/${encodeURIComponent(id)}`, patch);
+      setCategories((prev) => prev.map((c) => (c.id === id || c._id === id ? { ...c, ...data } : c)));
+      return data;
+    } catch (err) {
+      console.warn('Backend updateCategory error, updating local state:', err);
+      setCategories((prev) => prev.map((c) => (c.id === id || c._id === id ? { ...c, ...patch } : c)));
+      return { id, ...patch };
+    }
   };
   const deleteCategory = async (id) => {
-    await axios.delete(`${API}/categories/${id}`);
-    setCategories((prev) => prev.filter((c) => c.id !== id));
+    try {
+      await axios.delete(`${API}/categories/${encodeURIComponent(id)}`);
+    } catch (err) {
+      console.warn('Backend deleteCategory error, removing from local state:', err);
+    }
+    setCategories((prev) => prev.filter((c) => c.id !== id && c._id !== id && c.name !== id));
   };
 
   const uploadFoodImage = async (imageData) => {

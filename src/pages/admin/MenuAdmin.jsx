@@ -69,7 +69,7 @@ const MenuAdmin = () => {
   };
 
   const handleDeleteCategory = async (id, name) => {
-    const dishesInCat = menu.filter((m) => m.category === id);
+    const dishesInCat = menu.filter((m) => normalizeCatMatch(m.category, id));
     let confirmMsg = `Biztosan törölni szeretnéd a(z) "${name}" kategóriát?`;
     if (dishesInCat.length > 0) {
       confirmMsg = `Figyelem! Ebben a kategóriában (${name}) jelenleg ${dishesInCat.length} db étel van!\n\nBiztosan törlöd a kategóriát?`;
@@ -80,13 +80,12 @@ const MenuAdmin = () => {
     try {
       await deleteCategory(id);
       if (cat === id) {
-        const remaining = currentCategories.filter((c) => c.id !== id);
-        const nextId = remaining[0]?.id || '';
-        setCat(nextId);
-        setDraft((prev) => ({ ...prev, category: nextId }));
+        setCat('all');
+        setDraft((prev) => ({ ...prev, category: '' }));
       }
       toast.success(`"${name}" kategória sikeresen törölve.`);
     } catch (err) {
+      console.error('Delete category error:', err);
       toast.error('Hiba a kategória törlésekor');
     } finally {
       setCatLoading(false);

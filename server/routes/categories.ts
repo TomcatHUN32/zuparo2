@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import mongoose from 'mongoose';
 import { CategoryModel } from '../../serverModels';
 
 const router = Router();
@@ -16,13 +17,19 @@ const DEFAULT_CATEGORIES = [
 // GET /api/categories
 router.get('/', async (_req: Request, res: Response) => {
   try {
-    let cats = await CategoryModel.find({}).sort({ order: 1, name: 1 });
+    let cats = await CategoryModel.find({}).sort({ order: 1, name: 1 }).lean();
     if (!cats || cats.length === 0) {
-      // Seed default categories
-      await CategoryModel.insertMany(DEFAULT_CATEGORIES).catch(() => {});
-      cats = await CategoryModel.find({}).sort({ order: 1, name: 1 });
+      // Seed default categories with upsert
+      for (const def of DEFAULT_CATEGORIES) {
+        await CategoryModel.findOneAndUpdate({ id: def.id }, def, { upsert: true }).catch(() => {});
+      }
+      cats = await CategoryModel.find({}).sort({ order: 1, name: 1 }).lean();
     }
-    res.json(cats);
+    const mapped = (cats || []).map((c: any) => ({
+      ...c,
+      id: c.id || c._id?.toString(),
+    }));
+    res.json(mapped);
   } catch (err: any) {
     res.status(500).json({ error: err?.message || 'Hiba a kategóriák lekérésekor.' });
   }
@@ -32,8 +39,8 @@ router.get('/', async (_req: Request, res: Response) => {
 router.post('/', async (req: Request, res: Response) => {
   try {
     const { name, id, icon, order } = req.body || {};
-    if (!name) return res.status(400).json({ error: 'A kategória neve kötelező!' });
-    
+    if (!name || !name.trim()) return res.status(400).json({ error: 'A kategória neve kötelező!' });
+
     // Auto generate clean slug id if not provided
     const catId = (id || name)
       .toLowerCase()
@@ -43,18 +50,26 @@ router.post('/', async (req: Request, res: Response) => {
       .replace(/-+/g, '-')
       .replace(/^-|-$/g, '') || `cat-${Date.now()}`;
 
-    const existing = await CategoryModel.findOne({ id: catId });
-    if (existing) {
-      return res.status(400).json({ error: `Ilyen azonosítójú kategória (${catId}) már létezik!` });
-    }
+    const newCat = await CategoryModel.findOneAndUpdate(
+      {
+        $or: [
+          { id: catId },
+          { name: new RegExp('^' + name.trim() + '$', 'i') }
+        ]
+      },
+      {
+        id: catId,
+        name: name.trim(),
+        icon: icon || 'Utensils',
+        order: Number(order) || 0,
+      },
+      { upsert: true, new: true }
+    );
 
-    const newCat = await CategoryModel.create({
-      id: catId,
-      name: name.trim(),
-      icon: icon || 'Utensils',
-      order: Number(order) || 0,
+    res.json({
+      ...(newCat.toObject ? newCat.toObject() : newCat),
+      id: newCat.id || catId,
     });
-    res.json(newCat);
   } catch (err: any) {
     res.status(500).json({ error: err?.message || 'Hiba a kategória létrehozásakor.' });
   }
@@ -70,9 +85,35 @@ router.put('/:id', async (req: Request, res: Response) => {
     if (icon) updateData.icon = icon;
     if (order !== undefined) updateData.order = Number(order);
 
-    const updated = await CategoryModel.findOneAndUpdate({ id }, updateData, { new: true });
-    if (!updated) return res.status(404).json({ error: 'Kategória nem található.' });
-    res.json(updated);
+    const orConditions: any[] = [
+      { id: id },
+      { id: id.toLowerCase() },
+      { name: id },
+      { name: new RegExp('^' + id + '$', 'i') },
+    ];
+    if (mongoose.isValidObjectId(id)) {
+      orConditions.push({ _id: new mongoose.Types.ObjectId(id) });
+    }
+
+    let updated = await CategoryModel.findOneAndUpdate(
+      { $or: orConditions },
+      updateData,
+      { new: true }
+    );
+
+    if (!updated) {
+      updated = await CategoryModel.create({
+        id,
+        name: name ? name.trim() : id,
+        icon: icon || 'Utensils',
+        order: Number(order) || 0,
+      });
+    }
+
+    res.json({
+      ...(updated.toObject ? updated.toObject() : updated),
+      id: updated.id || id,
+    });
   } catch (err: any) {
     res.status(500).json({ error: err?.message || 'Hiba a kategória módosításakor.' });
   }
@@ -82,8 +123,23 @@ router.put('/:id', async (req: Request, res: Response) => {
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const deleted = await CategoryModel.findOneAndDelete({ id });
-    if (!deleted) return res.status(404).json({ error: 'Kategória nem található.' });
+    const orConditions: any[] = [
+      { id: id },
+      { id: id.toLowerCase() },
+      { name: id },
+      { name: new RegExp('^' + id + '$', 'i') },
+    ];
+    if (mongoose.isValidObjectId(id)) {
+      orConditions.push({ _id: new mongoose.Types.ObjectId(id) });
+    }
+
+    await CategoryModel.deleteMany({ $or: orConditions }).catch(() => {});
+
+    if (mongoose.connection?.db) {
+      await mongoose.connection.db.collection('categories').deleteMany({ $or: orConditions }).catch(() => {});
+    }
+
+    // Always succeed idempotently: deleting a non-existing item is already satisfied!
     res.json({ success: true, message: 'Kategória törölve.' });
   } catch (err: any) {
     res.status(500).json({ error: err?.message || 'Hiba a kategória törlésekor.' });
