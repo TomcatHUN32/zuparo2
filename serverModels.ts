@@ -398,3 +398,19 @@ const CategorySchema = new Schema<ICategory>({
 
 export const CategoryModel = mongoose.models.Category || mongoose.model<ICategory>('Category', CategorySchema);
 
+// Deleted Record Schema (remembers deleted items, zones, categories, etc. so sync NEVER resurrects them)
+export interface IDeletedRecord extends Document {
+  key: string;
+  type: string;
+  deletedAt: Date;
+}
+
+const DeletedRecordSchema = new Schema<IDeletedRecord>({
+  key: { type: String, required: true, unique: true, index: true },
+  type: { type: String, default: 'general' },
+  deletedAt: { type: Date, default: Date.now },
+});
+
+export const DeletedRecordModel = mongoose.models.DeletedRecord || mongoose.model<IDeletedRecord>('DeletedRecord', DeletedRecordSchema);
+
+

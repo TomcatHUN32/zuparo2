@@ -153,12 +153,19 @@ export const DataProvider = ({ children }) => {
 
         if (hasNewOnlineOrder && newestOnlineOrderObj) {
           setLastOnlineOrder(newestOnlineOrderObj);
-          // Play loud kitchen alarm sound alert for the kitchen / counter!
-          playOnlineOrderSound();
-          toast.success(`🚨 ÚJ ONLINE RENDELÉS ÉRKEZETT: #${newestOnlineOrderObj.id}!`, {
-            description: `${newestOnlineOrderObj.customerName || 'Vendég'} • ${newestOnlineOrderObj.type === 'delivery' ? 'Kiszállítás' : newestOnlineOrderObj.type === 'pickup' ? 'Elvitel' : 'Helyben'} • ${newestOnlineOrderObj.total?.toLocaleString()} Ft`,
-            duration: 10000,
-          });
+
+          // Only alert with sound and popup ON THE POS PAGE ('/admin/uj-rendeles')!
+          const currentPath = typeof window !== 'undefined' ? window.location.pathname : '';
+          const isPosPage = currentPath.includes('/admin/uj-rendeles') || currentPath.endsWith('/pos');
+
+          if (isPosPage) {
+            // Play loud kitchen alarm sound alert for the POS terminal!
+            playOnlineOrderSound();
+            toast.success(`🚨 ÚJ ONLINE RENDELÉS ÉRKEZETT: #${newestOnlineOrderObj.id}!`, {
+              description: `${newestOnlineOrderObj.customerName || 'Vendég'} • ${newestOnlineOrderObj.type === 'delivery' ? 'Kiszállítás' : 'Elvitel'} • ${newestOnlineOrderObj.total?.toLocaleString()} Ft`,
+              duration: 12000,
+            });
+          }
         }
       } catch (err) {
         // Polling error silently handled
@@ -395,9 +402,13 @@ export const DataProvider = ({ children }) => {
       return { id, ...patch };
     }
   };
-  const deleteCategory = async (id, name) => {
+  const deleteCategory = async (id, name, options = {}) => {
     try {
-      await axios.delete(`${API}/categories/${encodeURIComponent(id)}`);
+      const params = new URLSearchParams();
+      if (options.moveTo) params.set('moveTo', options.moveTo);
+      if (options.deleteDishes) params.set('deleteDishes', 'true');
+      const qs = params.toString() ? `?${params.toString()}` : '';
+      await axios.delete(`${API}/categories/${encodeURIComponent(id)}${qs}`);
     } catch (err) {
       console.warn('Backend deleteCategory error, removing from local state:', err);
     }
@@ -432,7 +443,7 @@ export const DataProvider = ({ children }) => {
       getDayReport, closeDay, getDayCloses,
       soundMuted, toggleSoundMute: toggleMute, testSound: handleTestSound,
       getSoundType, setSoundType, playOnlineOrderSound,
-      lastOnlineOrder,
+      lastOnlineOrder, clearLastOnlineOrder: () => setLastOnlineOrder(null),
       restaurantStatus, updateRestaurantStatus, toggleRestaurantOpen, uploadFoodImage,
       currentBudapestDate,
       reloadPublic: loadPublic, reloadAdmin: loadAdmin,

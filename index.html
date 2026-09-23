@@ -10,6 +10,22 @@
     <meta property="og:description" content="ZUPARO modern éttermi rendelési platform és adminisztrációs rendszer" />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      // Suppress Vite dev server WebSocket disconnect warnings/overlays
+      window.addEventListener('unhandledrejection', function(event) {
+        if (event && event.reason && (
+          String(event.reason).includes('WebSocket') ||
+          String(event.reason?.message || '').includes('WebSocket')
+        )) {
+          event.preventDefault();
+        }
+      });
+      window.addEventListener('error', function(event) {
+        if (event && event.message && String(event.message).includes('WebSocket')) {
+          event.preventDefault();
+        }
+      });
+    </script>
   </head>
   <body>
     <div id="root"></div>

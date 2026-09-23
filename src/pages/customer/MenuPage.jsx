@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useData } from '../../context/DataContext';
 import { useCart } from '../../context/CartContext';
 import { CATEGORIES, formatFt, LOGO_URL } from '../../mock/mockData';
-import { Search, Plus, Heart, ShoppingCart } from 'lucide-react';
+import { Search, Plus, Heart, ShoppingCart, XCircle, Slash } from 'lucide-react';
 import { toast } from 'sonner';
 
 const MIN_ORDER = 2500;
@@ -128,45 +128,87 @@ const MenuPage = () => {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-        {items.map((m) => (
-          <div key={m.id} className="rounded-2xl border border-neutral-800 bg-neutral-900 overflow-hidden card-hover hover:border-[#d4af37] flex flex-col justify-between">
-            <div>
-              <div className="h-44 bg-gradient-to-br from-neutral-800 to-neutral-950 flex items-center justify-center relative overflow-hidden">
-                <img
-                  src={m.image || LOGO_URL}
-                  className={m.image ? "w-full h-full object-cover transition-transform duration-300 hover:scale-105" : "h-20 opacity-70"}
-                  alt={m.name}
-                  onError={(e) => {
-                    e.currentTarget.src = LOGO_URL;
-                    e.currentTarget.className = "h-20 opacity-70";
-                  }}
-                />
-                <button
-                  onClick={() => toast.success(`Kedvencekhez adva: ${m.name}`)}
-                  className="absolute top-3 right-3 h-8 w-8 rounded-full bg-black/50 backdrop-blur-xs border border-neutral-700 text-white flex items-center justify-center hover:text-rose-400 transition-colors"
-                >
-                  <Heart size={14} />
-                </button>
+        {items.map((m) => {
+          const isSoldOut = m.available === false;
+          return (
+            <div
+              key={m.id}
+              className={`rounded-2xl border bg-neutral-900 overflow-hidden flex flex-col justify-between transition-all ${
+                isSoldOut
+                  ? 'border-neutral-800/80 opacity-90'
+                  : 'border-neutral-800 card-hover hover:border-[#d4af37]'
+              }`}
+            >
+              <div>
+                <div className="h-44 bg-gradient-to-br from-neutral-800 to-neutral-950 flex items-center justify-center relative overflow-hidden">
+                  <img
+                    src={m.image || LOGO_URL}
+                    className={`transition-transform duration-300 ${
+                      m.image ? "w-full h-full object-cover" : "h-20 opacity-70"
+                    } ${isSoldOut ? "grayscale opacity-50" : "hover:scale-105"}`}
+                    alt={m.name}
+                    onError={(e) => {
+                      e.currentTarget.src = LOGO_URL;
+                      e.currentTarget.className = "h-20 opacity-70";
+                    }}
+                  />
+
+                  {/* Sold out badge */}
+                  {isSoldOut && (
+                    <div className="absolute top-3 left-3 bg-rose-600 text-white font-black text-[11px] px-2.5 py-1 rounded-md uppercase tracking-wider shadow-lg flex items-center gap-1">
+                      <XCircle size={13} />
+                      <span>Elfogyott</span>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={() => toast.success(`Kedvencekhez adva: ${m.name}`)}
+                    className="absolute top-3 right-3 h-8 w-8 rounded-full bg-black/50 backdrop-blur-xs border border-neutral-700 text-white flex items-center justify-center hover:text-rose-400 transition-colors"
+                  >
+                    <Heart size={14} />
+                  </button>
+                </div>
+                <div className="p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className={`font-bold text-base ${isSoldOut ? 'text-neutral-300' : 'text-white'}`}>
+                      {m.name}
+                    </div>
+                    {isSoldOut && (
+                      <span className="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-800">
+                        Elfogyott
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-neutral-400 mt-1 line-clamp-2 leading-relaxed">{m.description}</div>
+                </div>
               </div>
-              <div className="p-4">
-                <div className="font-bold text-white text-base">{m.name}</div>
-                <div className="text-xs text-neutral-400 mt-1 line-clamp-2 leading-relaxed">{m.description}</div>
+              <div className="p-4 pt-0 mt-2 flex items-center justify-between border-t border-neutral-800/60 pt-3">
+                <div className={`font-extrabold text-lg ${isSoldOut ? 'text-neutral-500 line-through' : 'gold-text-gradient'}`}>
+                  {formatFt(m.price)}
+                </div>
+                {isSoldOut ? (
+                  <button
+                    disabled
+                    className="h-9 px-4 rounded-full bg-neutral-800 border border-neutral-700 text-neutral-400 text-xs font-bold inline-flex items-center gap-1.5 cursor-not-allowed opacity-75"
+                    title="Ez az étel jelenleg elfogyott, nem rendelhető"
+                  >
+                    <Slash size={13} /> Elfogyott
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      add(m);
+                      toast.success(`${m.name} kosárba téve`);
+                    }}
+                    className="h-9 px-4 rounded-full bg-rose-500 hover:bg-rose-600 text-white text-sm font-semibold inline-flex items-center gap-1.5 shadow-md transition-all active:scale-95 cursor-pointer"
+                  >
+                    <Plus size={14} /> Kosárba
+                  </button>
+                )}
               </div>
             </div>
-            <div className="p-4 pt-0 mt-2 flex items-center justify-between border-t border-neutral-800/60 pt-3">
-              <div className="gold-text-gradient font-extrabold text-lg">{formatFt(m.price)}</div>
-              <button
-                onClick={() => {
-                  add(m);
-                  toast.success(`${m.name} kosárba téve`);
-                }}
-                className="h-9 px-4 rounded-full bg-rose-500 hover:bg-rose-600 text-white text-sm font-semibold inline-flex items-center gap-1.5 shadow-md transition-all active:scale-95"
-              >
-                <Plus size={14} /> Kosárba
-              </button>
-            </div>
-          </div>
-        ))}
+          );
+        })}
         {items.length === 0 && <div className="col-span-full text-center text-neutral-500 py-16">Nincs találat.</div>}
       </div>
 

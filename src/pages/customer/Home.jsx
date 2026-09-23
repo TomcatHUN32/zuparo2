@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { LOGO_URL, CATEGORIES, formatFt } from '../../mock/mockData';
 import { useData } from '../../context/DataContext';
 import { useCart } from '../../context/CartContext';
-import { Clock, Bike, Heart, ArrowRight, MapPin, Phone, Flame, Pizza, Beef, Utensils, Wheat, Salad, Popcorn, CakeSlice, CupSoda, Plus } from 'lucide-react';
+import { Clock, Bike, Heart, ArrowRight, MapPin, Phone, Flame, Pizza, Beef, Utensils, Wheat, Salad, Popcorn, CakeSlice, CupSoda, Plus, Slash } from 'lucide-react';
 import { toast } from 'sonner';
 
 const ICONS = { Pizza, Beef, Utensils, Wheat, Salad, Popcorn, CakeSlice, CupSoda };

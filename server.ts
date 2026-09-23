@@ -19,6 +19,7 @@ import {
   OrderModel,
   RestaurantStatusModel,
   DayCloseModel,
+  DeletedRecordModel,
 } from './serverModels';
 
 import cors from 'cors';
@@ -247,6 +248,31 @@ let restaurantStatus: RestaurantStatus = {
   lastChangedAt: new Date().toISOString(),
 };
 
+// Tracking deleted records so they are NEVER resurrected on restart or auto-sync
+const inMemoryDeletedRecords = new Set<string>();
+
+async function markRecordDeleted(key: string, type = 'general') {
+  if (!key) return;
+  const lower = String(key).toLowerCase().trim();
+  inMemoryDeletedRecords.add(lower);
+  if (isMongoConnected) {
+    try {
+      await DeletedRecordModel.findOneAndUpdate(
+        { key: lower },
+        { key: lower, type, deletedAt: new Date() },
+        { upsert: true }
+      );
+    } catch (e) {
+      console.warn('Could not record deleted key in MongoDB:', e);
+    }
+  }
+}
+
+function isRecordDeleted(key: string): boolean {
+  if (!key) return false;
+  return inMemoryDeletedRecords.has(String(key).toLowerCase().trim());
+}
+
 // ================= MONGODB INTEGRATION & SYNC =================
 const MONGODB_URI = process.env.MONGO_URI || process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/szesztestverek';
 let isMongoConnected = false;
@@ -302,6 +328,18 @@ async function syncMongoData() {
   if (!isMongoConnected) return;
   try {
     const db = mongoose.connection.db;
+
+    // Load permanently deleted record keys from MongoDB first!
+    try {
+      const deletedDocs = await DeletedRecordModel.find().lean();
+      deletedDocs.forEach((d: any) => {
+        if (d?.key) inMemoryDeletedRecords.add(String(d.key).toLowerCase().trim());
+      });
+      console.log(`🔒 [MongoDB] Betöltve ${inMemoryDeletedRecords.size} véglegesen törölt rekord kulcsa.`);
+    } catch (e) {
+      console.warn('Could not load DeletedRecordModel:', e);
+    }
+
     let colNames: string[] = [];
     if (db) {
       const existingCols = await db.listCollections().toArray();
@@ -312,97 +350,114 @@ async function syncMongoData() {
       const foundFoodCol = possibleFoodCols.find((col) => colNames.includes(col));
 
       if (foundFoodCol) {
-        const legacyProducts = await db.collection(foundFoodCol).find().toArray();
-        if (legacyProducts.length > 0) {
-          console.log(`📦 [Legacy Auto-Sync] Találtunk ${legacyProducts.length} terméket a(z) '${foundFoodCol}' kollekcióban! Szinkronizálás...`);
+        const currentCount = await MenuItemModel.countDocuments();
+        // ONLY perform initial legacy migration if MenuItemModel is completely empty!
+        if (currentCount === 0) {
+          const legacyProducts = await db.collection(foundFoodCol).find().toArray();
+          if (legacyProducts.length > 0) {
+            console.log(`📦 [Legacy Auto-Sync] Találtunk ${legacyProducts.length} terméket a(z) '${foundFoodCol}' kollekcióban! Szinkronizálás...`);
 
-          // List of dummy seed item names that might have been accidentally seeded
-          const DUMMY_SEED_NAMES = new Set([
-            'sertéspörkölt galuskával',
-            'csirkepaprikás nokedlivel',
-            'töltött káposzta',
-            'rántott csirkecomb',
-            'rántott sertésszelet',
-            'grill csirkemell',
-            'margherita pizza',
-            'szalámis pizza',
-            'sonkás-gombás pizza',
-            'hawaii pizza',
-            'négysajtos pizza',
-            'húsimádó pizza',
-            'magyaros pizza',
-            'bolognai pizza',
-            'tonhalas pizza',
-            'rántott szelet hasábburgonyával',
-          ]);
+            // List of dummy seed item names that might have been accidentally seeded
+            const DUMMY_SEED_NAMES = new Set([
+              'sertéspörkölt galuskával',
+              'csirkepaprikás nokedlivel',
+              'töltött káposzta',
+              'rántott csirkecomb',
+              'rántott sertésszelet',
+              'grill csirkemell',
+              'margherita pizza',
+              'szalámis pizza',
+              'sonkás-gombás pizza',
+              'hawaii pizza',
+              'négysajtos pizza',
+              'húsimádó pizza',
+              'magyaros pizza',
+              'bolognai pizza',
+              'tonhalas pizza',
+              'rántott szelet hasábburgonyával',
+            ]);
 
-          // Clear in-memory dummy items before importing real database products
-          menuItems.clear();
+            // Clear in-memory dummy items before importing real database products
+            menuItems.clear();
 
-          const realProductNames = new Set(
-            legacyProducts.map((p) => String(p.name || p.nev || p.név || p.title || '').trim().toLowerCase())
-          );
+            for (const lp of legacyProducts) {
+              const id = lp.id || lp._id?.toString() || crypto.randomUUID();
+              const name = lp.name || lp.nev || lp.név || lp.title || 'Névtelen étel';
 
-          // Purge any dummy seed items from MenuItemModel that are NOT in the real database collection
-          const existingDocs = await MenuItemModel.find().lean();
-          for (const doc of existingDocs) {
-            const dName = String(doc.name || '').trim().toLowerCase();
-            if (DUMMY_SEED_NAMES.has(dName) && !realProductNames.has(dName)) {
-              await MenuItemModel.deleteOne({ _id: (doc as any)._id });
-              console.log(`🧹 [Cleanup] Eltávolítva a minta seed étel: "${doc.name}"`);
+              if (isRecordDeleted(id) || isRecordDeleted(name)) {
+                console.log(`🚫 [Legacy Auto-Sync] Törölt étel kihagyva: "${name}" (${id})`);
+                continue;
+              }
+
+              const rawCat = lp.category || lp.kategoria || lp.kategória;
+              let cat = rawCat;
+              if (!cat) {
+                const n = (name || '').toLowerCase();
+                if (n.includes('burger')) cat = 'Hamburger';
+                else if (n.includes('gyros') || n.includes('pita')) cat = 'Gyros Tálak/Pita';
+                else if (n.includes('langos') || n.includes('lángos')) cat = 'Lángos';
+                else if (n.includes('box')) cat = 'Box';
+                else if (n.includes('kóla') || n.includes('cola') || n.includes('pepsi') || n.includes('víz') || n.includes('üdítő') || n.includes('red bull') || n.includes('tea') || n.includes('fanta') || n.includes('sprite')) cat = 'Üdítők';
+                else if (n.includes('hasáb') || n.includes('burgonya') || n.includes('köret') || n.includes('rizs')) cat = 'Köret';
+                else cat = 'Ételek';
+              }
+              const price = Number(lp.price ?? lp.ar ?? lp.ár ?? 0);
+              const desc = lp.description || lp.leiras || lp.leírás || lp.desc || '';
+              const img = lp.image || lp.kep || lp.kép || lp.photo || lp.imageUrl || '';
+              const packFee = Number(lp.packaging_fee ?? lp.packagingFee ?? lp.csomagolas ?? lp.csomagolási_díj ?? 0);
+              const drs = Boolean(lp.drs_applies ?? lp.drsFeeEnabled ?? lp.drs ?? false);
+              const avail = lp.available !== false && lp.elerheto !== false && lp.aktiv !== false && lp.aktív !== false;
+
+              const mappedItem: MenuItem = {
+                id,
+                name,
+                description: desc,
+                price,
+                priceFoodora: lp.priceFoodora !== undefined ? Number(lp.priceFoodora) : Math.round(price * 1.25),
+                priceFalatozz: lp.priceFalatozz !== undefined ? Number(lp.priceFalatozz) : Math.round(price * 1.2),
+                category: cat,
+                packagingFee: packFee,
+                drsFeeEnabled: drs,
+                available: avail,
+                image: img,
+                recipe: Array.isArray(lp.recipe) ? lp.recipe : [],
+              };
+              menuItems.set(id, mappedItem);
+              await MenuItemModel.findOneAndUpdate({ id }, mappedItem, { upsert: true });
             }
+            console.log(`✅ [Legacy Auto-Sync] ${menuItems.size} valódi termék átemelve a menübe a(z) '${foundFoodCol}' kollekcióból.`);
           }
-
-          for (const lp of legacyProducts) {
-            const id = lp.id || lp._id?.toString() || crypto.randomUUID();
-            const name = lp.name || lp.nev || lp.név || lp.title || 'Névtelen étel';
-            const cat = lp.category || lp.kategoria || lp.kategória || 'egyeb';
-            const price = Number(lp.price ?? lp.ar ?? lp.ár ?? 0);
-            const desc = lp.description || lp.leiras || lp.leírás || lp.desc || '';
-            const img = lp.image || lp.kep || lp.kép || lp.photo || lp.imageUrl || '';
-            const packFee = Number(lp.packaging_fee ?? lp.packagingFee ?? lp.csomagolas ?? lp.csomagolási_díj ?? 0);
-            const drs = Boolean(lp.drs_applies ?? lp.drsFeeEnabled ?? lp.drs ?? false);
-            const avail = lp.available !== false && lp.elerheto !== false && lp.aktiv !== false && lp.aktív !== false;
-
-            const mappedItem: MenuItem = {
-              id,
-              name,
-              description: desc,
-              price,
-              priceFoodora: lp.priceFoodora !== undefined ? Number(lp.priceFoodora) : Math.round(price * 1.25),
-              priceFalatozz: lp.priceFalatozz !== undefined ? Number(lp.priceFalatozz) : Math.round(price * 1.2),
-              category: cat,
-              packagingFee: packFee,
-              drsFeeEnabled: drs,
-              available: avail,
-              image: img,
-              recipe: Array.isArray(lp.recipe) ? lp.recipe : [],
-            };
-            menuItems.set(id, mappedItem);
-            await MenuItemModel.findOneAndUpdate({ id }, mappedItem, { upsert: true });
-          }
-          console.log(`✅ [Legacy Auto-Sync] ${legacyProducts.length} valódi termék átemelve a menübe a(z) '${foundFoodCol}' kollekcióból.`);
+        } else {
+          console.log(`📦 [Legacy Auto-Sync] MenuItemModel már tartalmaz ${currentCount} terméket. Nincs felülírás.`);
         }
       }
 
       // Auto-detect legacy Szesztestvérek 'cities' collection
       if (colNames.includes('cities')) {
-        const legacyCities = await db.collection('cities').find().toArray();
-        if (legacyCities.length > 0) {
-          console.log(`📦 [Legacy Auto-Sync] Találtunk ${legacyCities.length} települést a régi 'cities' kollekcióban! Szinkronizálás...`);
-          for (const lc of legacyCities) {
-            const id = lc.id || lc._id?.toString() || crypto.randomUUID();
-            const mappedZone: Zone = {
-              id,
-              city: lc.name || lc.city || lc.telepules || lc.település || '',
-              zip: lc.postal_code || lc.zip || lc.iranyitoszam || lc.irányítószám || '',
-              fee: Number(lc.delivery_fee ?? lc.fee ?? lc.dij ?? lc.díj ?? lc.szallitasi_dij ?? 0),
-              minOrder: Number(lc.free_delivery_over ?? lc.minOrder ?? 0),
-            };
-            deliveryZones.set(id, mappedZone);
-            await ZoneModel.findOneAndUpdate({ id }, mappedZone, { upsert: true });
+        const currentZoneCount = await ZoneModel.countDocuments();
+        if (currentZoneCount === 0) {
+          const legacyCities = await db.collection('cities').find().toArray();
+          if (legacyCities.length > 0) {
+            console.log(`📦 [Legacy Auto-Sync] Találtunk ${legacyCities.length} települést a régi 'cities' kollekcióban! Szinkronizálás...`);
+            for (const lc of legacyCities) {
+              const id = lc.id || lc._id?.toString() || crypto.randomUUID();
+              const cityName = lc.name || lc.city || lc.telepules || lc.település || '';
+              if (isRecordDeleted(id) || isRecordDeleted(cityName)) {
+                console.log(`🚫 [Legacy Auto-Sync] Törölt település kihagyva: "${cityName}" (${id})`);
+                continue;
+              }
+              const mappedZone: Zone = {
+                id,
+                city: cityName,
+                zip: lc.postal_code || lc.zip || lc.iranyitoszam || lc.irányítószám || '',
+                fee: Number(lc.delivery_fee ?? lc.fee ?? lc.dij ?? lc.díj ?? lc.szallitasi_dij ?? 0),
+                minOrder: Number(lc.free_delivery_over ?? lc.minOrder ?? 0),
+              };
+              deliveryZones.set(id, mappedZone);
+              await ZoneModel.findOneAndUpdate({ id }, mappedZone, { upsert: true });
+            }
+            console.log(`✅ [Legacy Auto-Sync] ${deliveryZones.size} település átemelve a szállítási zónákba.`);
           }
-          console.log(`✅ [Legacy Auto-Sync] ${legacyCities.length} település átemelve a szállítási zónákba.`);
         }
       }
     }
@@ -411,13 +466,19 @@ async function syncMongoData() {
     const menuCount = await MenuItemModel.countDocuments();
     if (menuCount === 0) {
       console.log('🌱 [MongoDB] Seeding menu items to MongoDB...');
-      const mList = Array.from(menuItems.values());
+      const mList = Array.from(menuItems.values()).filter((m) => !isRecordDeleted(m.id) && !isRecordDeleted(m.name));
       if (mList.length) await MenuItemModel.insertMany(mList);
     } else {
       const mDocs = await MenuItemModel.find().lean();
       menuItems.clear();
       for (const m of mDocs) {
         const id = m.id || (m as any)._id?.toString() || crypto.randomUUID();
+        const name = (m as any).name || '';
+        if (isRecordDeleted(id) || isRecordDeleted(name)) {
+          console.log(`🧹 [MongoDB] Törölt étel eltávolítása: "${name}" (${id})`);
+          await MenuItemModel.deleteOne({ _id: (m as any)._id }).catch(() => {});
+          continue;
+        }
         menuItems.set(id, { ...(m as any), id });
       }
       console.log(`📥 [MongoDB] Loaded ${menuItems.size} menu items from database.`);
@@ -506,13 +567,19 @@ async function syncMongoData() {
     // 3. Zones
     const zoneCount = await ZoneModel.countDocuments();
     if (zoneCount === 0) {
-      const zList = Array.from(deliveryZones.values());
+      const zList = Array.from(deliveryZones.values()).filter((z) => !isRecordDeleted(z.id) && !isRecordDeleted(z.city));
       if (zList.length) await ZoneModel.insertMany(zList);
     } else {
       const zDocs = await ZoneModel.find().lean();
       deliveryZones.clear();
       for (const z of zDocs) {
         const id = z.id || (z as any)._id?.toString() || crypto.randomUUID();
+        const city = (z as any).city || '';
+        if (isRecordDeleted(id) || isRecordDeleted(city)) {
+          console.log(`🧹 [MongoDB] Törölt zóna eltávolítása: "${city}" (${id})`);
+          await ZoneModel.deleteOne({ _id: (z as any)._id }).catch(() => {});
+          continue;
+        }
         deliveryZones.set(id, { ...(z as any), id });
       }
     }
@@ -520,13 +587,18 @@ async function syncMongoData() {
     // 4. Couriers
     const courierCount = await CourierModel.countDocuments();
     if (courierCount === 0) {
-      const cList = Array.from(couriers.values());
+      const cList = Array.from(couriers.values()).filter((c) => !isRecordDeleted(c.id) && !isRecordDeleted(c.name));
       if (cList.length) await CourierModel.insertMany(cList);
     } else {
       const cDocs = await CourierModel.find().lean();
       couriers.clear();
       for (const c of cDocs) {
         const id = c.id || (c as any)._id?.toString() || crypto.randomUUID();
+        const name = (c as any).name || '';
+        if (isRecordDeleted(id) || isRecordDeleted(name)) {
+          await CourierModel.deleteOne({ _id: (c as any)._id }).catch(() => {});
+          continue;
+        }
         couriers.set(id, { ...(c as any), id });
       }
     }
@@ -534,13 +606,18 @@ async function syncMongoData() {
     // 5. Inventory
     const invCount = await InventoryModel.countDocuments();
     if (invCount === 0) {
-      const iList = Array.from(inventoryItems.values());
+      const iList = Array.from(inventoryItems.values()).filter((i) => !isRecordDeleted(i.id) && !isRecordDeleted(i.name));
       if (iList.length) await InventoryModel.insertMany(iList);
     } else {
       const iDocs = await InventoryModel.find().lean();
       inventoryItems.clear();
       for (const i of iDocs) {
         const id = i.id || (i as any)._id?.toString() || crypto.randomUUID();
+        const name = (i as any).name || '';
+        if (isRecordDeleted(id) || isRecordDeleted(name)) {
+          await InventoryModel.deleteOne({ _id: (i as any)._id }).catch(() => {});
+          continue;
+        }
         inventoryItems.set(id, { ...(i as any), id });
       }
     }
@@ -548,13 +625,18 @@ async function syncMongoData() {
     // 6. Coupons
     const couponCount = await CouponModel.countDocuments();
     if (couponCount === 0) {
-      const cpList = Array.from(coupons.values());
+      const cpList = Array.from(coupons.values()).filter((cp) => !isRecordDeleted(cp.id) && !isRecordDeleted(cp.code));
       if (cpList.length) await CouponModel.insertMany(cpList);
     } else {
       const cpDocs = await CouponModel.find().lean();
       coupons.clear();
       for (const cp of cpDocs) {
         const id = cp.id || (cp as any)._id?.toString() || crypto.randomUUID();
+        const code = (cp as any).code || '';
+        if (isRecordDeleted(id) || isRecordDeleted(code)) {
+          await CouponModel.deleteOne({ _id: (cp as any)._id }).catch(() => {});
+          continue;
+        }
         coupons.set(id, { ...(cp as any), id });
       }
     }
@@ -1356,7 +1438,7 @@ app.post('/api/menu', requireAdmin, async (req, res) => {
   const id = crypto.randomUUID();
   const item: MenuItem = {
     id,
-    category: body.category || 'egyeb',
+    category: body.category || '',
     name: body.name || '',
     description: body.description || '',
     price: Number(body.price) || 0,
@@ -1401,7 +1483,11 @@ app.put('/api/menu/:id', requireAdmin, async (req, res) => {
   if (isMongoConnected) {
     await MenuItemModel.findOneAndUpdate({ id }, updated, { upsert: true }).catch((e) => console.error('MongoDB MenuItem update error:', e));
     if (mongoose.connection.db) {
-      await mongoose.connection.db.collection('products').updateOne({ id }, { $set: updated }, { upsert: true }).catch(() => {});
+      await mongoose.connection.db.collection('products').updateOne(
+        { $or: [{ id }, ...(mongoose.Types.ObjectId.isValid(id) ? [{ _id: new mongoose.Types.ObjectId(id) }] : [])] },
+        { $set: { ...updated, available: updated.available, elerheto: updated.available, aktiv: updated.available } },
+        { upsert: true }
+      ).catch(() => {});
     }
   }
   res.json(updated);
@@ -1409,11 +1495,25 @@ app.put('/api/menu/:id', requireAdmin, async (req, res) => {
 
 app.delete('/api/menu/:id', requireAdmin, async (req, res) => {
   const { id } = req.params;
+  const item = menuItems.get(id);
+  const itemName = item?.name;
+
+  await markRecordDeleted(id, 'dish');
+  if (itemName) await markRecordDeleted(itemName, 'dish');
+
   const deleted = menuItems.delete(id);
   if (isMongoConnected) {
-    await MenuItemModel.deleteOne({ $or: [{ id }, { _id: id }] }).catch((e) => console.error('MongoDB MenuItem delete error:', e));
+    const filter: any = { $or: [{ id }] };
+    if (mongoose.Types.ObjectId.isValid(id)) filter.$or.push({ _id: new mongoose.Types.ObjectId(id) });
+    if (itemName) filter.$or.push({ name: itemName });
+
+    await MenuItemModel.deleteMany(filter).catch((e) => console.error('MongoDB MenuItem delete error:', e));
     if (mongoose.connection.db) {
-      await (mongoose.connection.db.collection('products') as any).deleteOne({ $or: [{ id }, { _id: id }] }).catch(() => {});
+      await mongoose.connection.db.collection('products').deleteMany(filter).catch(() => {});
+      const otherCols = ['dishes', 'etlap', 'foods', 'termekek'];
+      for (const col of otherCols) {
+        await mongoose.connection.db.collection(col).deleteMany(filter).catch(() => {});
+      }
     }
   }
   res.json({ deleted: deleted ? 1 : 0 });
@@ -1461,17 +1561,29 @@ app.post('/api/menu/batch-delete', requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Nincsenek kiválasztott ételek.' });
     }
 
+    const orConditions: any[] = [];
     for (const id of ids) {
+      const item = menuItems.get(id);
+      await markRecordDeleted(id, 'dish');
+      orConditions.push({ id });
+      if (mongoose.Types.ObjectId.isValid(id)) orConditions.push({ _id: new mongoose.Types.ObjectId(id) });
+      if (item?.name) {
+        await markRecordDeleted(item.name, 'dish');
+        orConditions.push({ name: item.name });
+      }
       menuItems.delete(id);
     }
 
-    if (isMongoConnected) {
-      const orIds = ids.map((id) => ({ id }));
-      await MenuItemModel.deleteMany({ $or: orIds }).catch((e) =>
+    if (isMongoConnected && orConditions.length > 0) {
+      await MenuItemModel.deleteMany({ $or: orConditions }).catch((e) =>
         console.error('MongoDB batch delete error:', e)
       );
       if (mongoose.connection?.db) {
-        await mongoose.connection.db.collection('products').deleteMany({ $or: orIds }).catch(() => {});
+        await mongoose.connection.db.collection('products').deleteMany({ $or: orConditions }).catch(() => {});
+        const otherCols = ['dishes', 'etlap', 'foods', 'termekek'];
+        for (const col of otherCols) {
+          await mongoose.connection.db.collection(col).deleteMany({ $or: orConditions }).catch(() => {});
+        }
       }
     }
 
@@ -1491,19 +1603,23 @@ app.get('/api/zones', async (req, res) => {
       }
       const legacyCities = await mongoose.connection.db.collection('cities').find().toArray();
       if (legacyCities.length > 0) {
-        return res.json(legacyCities.map((c: any) => ({
-          id: c.id || c._id?.toString(),
-          zip: c.zip || c.postal_code || '',
-          city: c.city || c.name || '',
-          fee: Number(c.delivery_fee ?? c.fee) || 0,
-          minOrder: Number(c.free_delivery_over ?? c.minOrder) || 0,
-        })));
+        return res.json(
+          legacyCities
+            .map((c: any) => ({
+              id: c.id || c._id?.toString(),
+              zip: c.zip || c.postal_code || '',
+              city: c.city || c.name || '',
+              fee: Number(c.delivery_fee ?? c.fee) || 0,
+              minOrder: Number(c.free_delivery_over ?? c.minOrder) || 0,
+            }))
+            .filter((z: any) => !isRecordDeleted(z.id) && !isRecordDeleted(z.city))
+        );
       }
     } catch (e) {
       console.error('Zones direct MongoDB read error:', e);
     }
   }
-  res.json(Array.from(deliveryZones.values()));
+  res.json(Array.from(deliveryZones.values()).filter((z) => !isRecordDeleted(z.id) && !isRecordDeleted(z.city)));
 });
 
 app.post('/api/zones', requireAdmin, (req, res) => {
@@ -1530,11 +1646,25 @@ app.put('/api/zones/:id', requireAdmin, (req, res) => {
   res.json(updated);
 });
 
-app.delete('/api/zones/:id', requireAdmin, (req, res) => {
+app.delete('/api/zones/:id', requireAdmin, async (req, res) => {
   const { id } = req.params;
+  const zone = deliveryZones.get(id);
+  const cityName = zone?.city;
+
+  await markRecordDeleted(id, 'zone');
+  if (cityName) await markRecordDeleted(cityName, 'zone');
+
   const deleted = deliveryZones.delete(id);
   if (isMongoConnected) {
-    ZoneModel.deleteOne({ id }).catch((e) => console.error('MongoDB Zone delete error:', e));
+    const filter: any = { $or: [{ id }] };
+    if (mongoose.Types.ObjectId.isValid(id)) filter.$or.push({ _id: new mongoose.Types.ObjectId(id) });
+    if (cityName) {
+      filter.$or.push({ city: cityName }, { name: cityName });
+    }
+    await ZoneModel.deleteMany(filter).catch((e) => console.error('MongoDB Zone delete error:', e));
+    if (mongoose.connection.db) {
+      await mongoose.connection.db.collection('cities').deleteMany(filter).catch(() => {});
+    }
   }
   res.json({ deleted: deleted ? 1 : 0 });
 });
@@ -2452,9 +2582,12 @@ app.post('/api/system/migrate-legacy-szesztestverek', async (req, res) => {
       const pDocs = await db.collection('products').find().toArray();
       for (const p of pDocs) {
         const id = p.id || p._id?.toString() || crypto.randomUUID();
+        const name = p.name || '';
+        if (isRecordDeleted(id) || isRecordDeleted(name)) continue;
+
         const item: MenuItem = {
           id,
-          name: p.name,
+          name,
           description: p.description || '',
           price: Number(p.price) || 0,
           category: p.category || 'Házias ételek',
@@ -2474,9 +2607,12 @@ app.post('/api/system/migrate-legacy-szesztestverek', async (req, res) => {
       const cDocs = await db.collection('cities').find().toArray();
       for (const c of cDocs) {
         const id = c.id || c._id?.toString() || crypto.randomUUID();
+        const cityName = c.name || c.city || '';
+        if (isRecordDeleted(id) || isRecordDeleted(cityName)) continue;
+
         const zone: Zone = {
           id,
-          city: c.name || c.city,
+          city: cityName,
           zip: c.postal_code || c.zip || '',
           fee: Number(c.delivery_fee ?? c.fee) || 0,
           minOrder: Number(c.free_delivery_over ?? c.minOrder) || 0,

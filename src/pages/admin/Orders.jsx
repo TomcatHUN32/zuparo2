@@ -1,12 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import { useData } from '../../context/DataContext';
 import { STATUS_LABELS, formatFt, CATEGORIES } from '../../mock/mockData';
-import { Phone, MapPin, Trash2, Pencil, Filter, XCircle, Bike, Plus, Minus, Globe, Lock, Save, X, ChevronDown, ChevronUp, Search, Printer, CheckCircle2 } from 'lucide-react';
+import { Phone, MapPin, Trash2, Pencil, Filter, XCircle, Bike, Plus, Minus, Globe, Lock, Save, X, ChevronDown, ChevronUp, Search, Printer, CheckCircle2, Volume2, VolumeX, Bell } from 'lucide-react';
 import { KitchenTicketModal } from '../../components/KitchenTicketModal';
 import { toast } from 'sonner';
 
 const Orders = () => {
-  const { orders, couriers, updateOrder, deleteOrder, menu, currentBudapestDate } = useData();
+  const { orders, couriers, updateOrder, deleteOrder, menu, currentBudapestDate, soundMuted, toggleSoundMute, testSound } = useData();
   const [dateMode, setDateMode] = useState('today'); // 'today' | 'yesterday' | 'all' | 'custom'
   const [customDate, setCustomDate] = useState('');
   const [filter, setFilter] = useState('all');
@@ -206,6 +206,30 @@ const Orders = () => {
               className="px-2 py-1 text-xs bg-neutral-900 border border-neutral-700 rounded text-neutral-200 focus:outline-none focus:border-amber-400 cursor-pointer"
             />
           </div>
+
+          {/* Sound alert quick toggle & test */}
+          <div className="flex items-center gap-1.5 pl-2 border-l border-neutral-700">
+            <button
+              type="button"
+              onClick={toggleSoundMute}
+              title={soundMuted ? 'Konyhai hangjelzés bekapcsolása' : 'Konyhai hangjelzés némítása'}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-bold transition-all cursor-pointer ${
+                soundMuted ? 'bg-rose-900/60 text-rose-300 border border-rose-700' : 'bg-emerald-950 text-emerald-300 border border-emerald-700/60'
+              }`}
+            >
+              {soundMuted ? <VolumeX size={13} /> : <Volume2 size={13} className="text-emerald-400" />}
+              <span>{soundMuted ? 'Néma' : 'Hang aktív'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={testSound}
+              title="Erős konyhai riasztó hang tesztelése (kattints a meghallgatáshoz)"
+              className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-extrabold bg-amber-400 text-neutral-950 hover:bg-amber-300 transition-all cursor-pointer shadow-xs"
+            >
+              <Bell size={13} className="animate-bounce" />
+              <span>Hangteszt 🚨</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -287,9 +311,24 @@ const Orders = () => {
                     )}
                   </div>
                   <div className="mt-1.5 text-sm font-semibold text-neutral-900">{o.customerName}</div>
-                  <div className="text-xs text-neutral-500 flex flex-wrap gap-3 mt-0.5">
-                    <span className="inline-flex items-center gap-1"><Phone size={12} />{o.phone}</span>
-                    <span className="inline-flex items-center gap-1"><MapPin size={12} />{o.zip} {o.city}, {o.street}</span>
+                  <div className="text-xs text-neutral-500 flex flex-wrap items-center gap-3 mt-0.5">
+                    <span className="inline-flex items-center gap-1"><Phone size={12} />{o.phone || '-'}</span>
+                    {o.type === 'pickup' ? (
+                      <span className="inline-flex items-center gap-1 font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                        <MapPin size={11} className="text-amber-600" /> Elvitel az étteremben
+                      </span>
+                    ) : o.type === 'dinein' ? (
+                      <span className="inline-flex items-center gap-1 font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                        <MapPin size={11} className="text-emerald-600" /> Helyben fogyasztás
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1">
+                        <MapPin size={12} />
+                        {[o.zip, o.city].filter(Boolean).join(' ')
+                          ? `${[o.zip, o.city].filter(Boolean).join(' ')}${o.street ? `, ${o.street}` : ''}`
+                          : (o.street || 'Cím nélkül')}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div className="sm:text-right shrink-0 border-t sm:border-t-0 pt-2 sm:pt-0 border-neutral-100 flex sm:flex-col justify-between items-end">

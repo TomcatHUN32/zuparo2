@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { toast } from 'sonner';
 
 const CartContext = createContext(null);
 
@@ -8,11 +9,23 @@ export const CartProvider = ({ children }) => {
   });
   useEffect(() => { localStorage.setItem('zuparo_cart', JSON.stringify(cart)); }, [cart]);
 
-  const add = (item) => setCart((prev) => {
-    const idx = prev.findIndex((c) => c.id === item.id);
-    if (idx >= 0) { const copy = [...prev]; copy[idx].qty += 1; return copy; }
-    return [...prev, { ...item, qty: 1 }];
-  });
+  const add = (item) => {
+    if (item.available === false) {
+      toast.error(`A(z) "${item.name}" jelenleg elfogyott, nem rendelhető!`);
+      return false;
+    }
+    setCart((prev) => {
+      const idx = prev.findIndex((c) => c.id === item.id);
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx].qty += 1;
+        return copy;
+      }
+      return [...prev, { ...item, qty: 1 }];
+    });
+    return true;
+  };
+
   const setQty = (id, qty) => setCart((prev) => prev.map((c) => c.id === id ? { ...c, qty: Math.max(1, qty) } : c));
   const remove = (id) => setCart((prev) => prev.filter((c) => c.id !== id));
   const clear = () => setCart([]);

@@ -58,37 +58,42 @@ if (typeof window !== 'undefined') {
 }
 
 /**
- * High-intensity kitchen alarm ("Erős idegesítő hang")
- * Piercing multi-tone buzzer that repeats in 4 sharp cycles with rich sawtooth & square harmonics.
- * Frequency range: 2200Hz - 3800Hz (human ear maximum sensitivity range).
+ * High-intensity kitchen alarm ("Erős, idegesítő konyhai riasztó")
+ * Piercing multi-frequency dual-oscillator klaxon buzzer that alternates sharply
+ * between 2200Hz and 3600Hz in 5 urgent cycles.
+ * Designed to cut through kitchen hood extractor noise and cooking clatter.
  */
 function playLoudAlarm(ctx, startTime) {
   const bursts = [
-    // Cycle 1: 4 rapid harsh staccato bursts
-    { t: 0.00, f1: 2200, f2: 2770, dur: 0.12 },
-    { t: 0.16, f1: 2200, f2: 2770, dur: 0.12 },
-    { t: 0.32, f1: 2200, f2: 2770, dur: 0.12 },
-    { t: 0.48, f1: 2600, f2: 3300, dur: 0.22 },
+    // Cycle 1: Rapid staccato siren alerts (PULSE 1)
+    { t: 0.00, f1: 2200, f2: 2800, dur: 0.13, vol: 1.0 },
+    { t: 0.16, f1: 2200, f2: 2800, dur: 0.13, vol: 1.0 },
+    { t: 0.32, f1: 2200, f2: 2800, dur: 0.13, vol: 1.0 },
+    { t: 0.48, f1: 2800, f2: 3500, dur: 0.25, vol: 1.0 },
 
-    // Cycle 2: Higher pitch urgent bursts
-    { t: 0.85, f1: 2400, f2: 2950, dur: 0.12 },
-    { t: 1.01, f1: 2400, f2: 2950, dur: 0.12 },
-    { t: 1.17, f1: 2400, f2: 2950, dur: 0.12 },
-    { t: 1.33, f1: 2850, f2: 3600, dur: 0.25 },
+    // Cycle 2: Piercing high-pitch emergency sweep (PULSE 2)
+    { t: 0.85, f1: 2400, f2: 3100, dur: 0.13, vol: 1.0 },
+    { t: 1.01, f1: 2400, f2: 3100, dur: 0.13, vol: 1.0 },
+    { t: 1.17, f1: 2400, f2: 3100, dur: 0.13, vol: 1.0 },
+    { t: 1.33, f1: 3000, f2: 3800, dur: 0.28, vol: 1.0 },
 
-    // Cycle 3: Klaxon pulse
-    { t: 1.75, f1: 2200, f2: 2770, dur: 0.12 },
-    { t: 1.91, f1: 2200, f2: 2770, dur: 0.12 },
-    { t: 2.07, f1: 2200, f2: 2770, dur: 0.12 },
-    { t: 2.23, f1: 2600, f2: 3300, dur: 0.22 },
+    // Cycle 3: Alternating two-tone klaxon (PULSE 3)
+    { t: 1.75, f1: 2300, f2: 2900, dur: 0.13, vol: 1.0 },
+    { t: 1.91, f1: 2300, f2: 2900, dur: 0.13, vol: 1.0 },
+    { t: 2.07, f1: 2300, f2: 2900, dur: 0.13, vol: 1.0 },
+    { t: 2.23, f1: 2800, f2: 3600, dur: 0.25, vol: 1.0 },
 
-    // Cycle 4: Final loud siren finale
-    { t: 2.60, f1: 2500, f2: 3200, dur: 0.14 },
-    { t: 2.78, f1: 2500, f2: 3200, dur: 0.14 },
-    { t: 2.96, f1: 3000, f2: 3800, dur: 0.45 },
+    // Cycle 4: High-urgency warning bursts (PULSE 4)
+    { t: 2.62, f1: 2600, f2: 3300, dur: 0.15, vol: 1.0 },
+    { t: 2.82, f1: 2600, f2: 3300, dur: 0.15, vol: 1.0 },
+    { t: 3.02, f1: 3200, f2: 4000, dur: 0.40, vol: 1.0 },
+
+    // Cycle 5: Final piercing siren burst
+    { t: 3.55, f1: 2700, f2: 3400, dur: 0.16, vol: 1.0 },
+    { t: 3.75, f1: 3300, f2: 4200, dur: 0.50, vol: 1.0 },
   ];
 
-  bursts.forEach(({ t, f1, f2, dur }) => {
+  bursts.forEach(({ t, f1, f2, dur, vol }) => {
     const burstStart = startTime + t;
     try {
       // 1. Primary harsh sawtooth oscillator
@@ -96,10 +101,12 @@ function playLoudAlarm(ctx, startTime) {
       const gain1 = ctx.createGain();
       osc1.type = 'sawtooth';
       osc1.frequency.setValueAtTime(f1, burstStart);
+      osc1.frequency.linearRampToValueAtTime(f1 * 1.12, burstStart + dur);
 
+      const maxG = vol || 1.0;
       gain1.gain.setValueAtTime(0.001, burstStart);
-      gain1.gain.linearRampToValueAtTime(0.9, burstStart + 0.015);
-      gain1.gain.setValueAtTime(0.9, burstStart + dur - 0.02);
+      gain1.gain.linearRampToValueAtTime(maxG, burstStart + 0.012);
+      gain1.gain.setValueAtTime(maxG, burstStart + dur - 0.02);
       gain1.gain.linearRampToValueAtTime(0.001, burstStart + dur);
 
       osc1.connect(gain1);
@@ -107,15 +114,16 @@ function playLoudAlarm(ctx, startTime) {
       osc1.start(burstStart);
       osc1.stop(burstStart + dur);
 
-      // 2. Secondary punchy square oscillator (discordant overtone)
+      // 2. Secondary punchy discordant square oscillator
       const osc2 = ctx.createOscillator();
       const gain2 = ctx.createGain();
       osc2.type = 'square';
       osc2.frequency.setValueAtTime(f2, burstStart);
+      osc2.frequency.linearRampToValueAtTime(f2 * 0.95, burstStart + dur);
 
       gain2.gain.setValueAtTime(0.001, burstStart);
-      gain2.gain.linearRampToValueAtTime(0.7, burstStart + 0.015);
-      gain2.gain.setValueAtTime(0.7, burstStart + dur - 0.02);
+      gain2.gain.linearRampToValueAtTime(maxG * 0.85, burstStart + 0.012);
+      gain2.gain.setValueAtTime(maxG * 0.85, burstStart + dur - 0.02);
       gain2.gain.linearRampToValueAtTime(0.001, burstStart + dur);
 
       osc2.connect(gain2);
@@ -192,103 +200,70 @@ function playDigitalBeep(ctx, freq, startTime, duration = 0.12, volume = 0.5) {
 
 /**
  * Main online order notification sound
- * Triggers the alarm/buzzer so the kitchen staff is immediately alerted.
+ * Triggers the loud alarm/buzzer so the kitchen staff is immediately alerted.
  */
-export function playOnlineOrderSound(overrideType) {
-  if (isMuted) return;
+export async function playOnlineOrderSound(overrideType) {
+  if (isMuted) return false;
 
   try {
     const ctx = getAudioContext();
-    if (!ctx) return;
+    if (!ctx) return false;
 
     if (ctx.state === 'suspended') {
-      ctx.resume().catch(() => {});
+      await ctx.resume().catch(() => {});
     }
 
     const type = overrideType || currentSoundType || 'alarm';
     const now = ctx.currentTime + 0.04;
 
     if (type === 'alarm' || type === 'loud_alarm') {
-      // Loud industrial alarm!
+      // Loud industrial kitchen alarm!
       playLoudAlarm(ctx, now);
     } else if (type === 'beep') {
-      playDigitalBeep(ctx, 1760, now + 0.00, 0.12, 0.45);
-      playDigitalBeep(ctx, 1760, now + 0.18, 0.12, 0.45);
-      playDigitalBeep(ctx, 2349.32, now + 0.36, 0.20, 0.5);
-      playDigitalBeep(ctx, 1760, now + 0.70, 0.12, 0.45);
-      playDigitalBeep(ctx, 1760, now + 0.88, 0.12, 0.45);
-      playDigitalBeep(ctx, 2349.32, now + 1.06, 0.25, 0.5);
+      playDigitalBeep(ctx, 1760, now + 0.00, 0.12, 0.7);
+      playDigitalBeep(ctx, 1760, now + 0.18, 0.12, 0.7);
+      playDigitalBeep(ctx, 2349.32, now + 0.36, 0.20, 0.8);
+      playDigitalBeep(ctx, 1760, now + 0.70, 0.12, 0.7);
+      playDigitalBeep(ctx, 1760, now + 0.88, 0.12, 0.7);
+      playDigitalBeep(ctx, 2349.32, now + 1.06, 0.25, 0.8);
     } else {
-      playChimeBell(ctx, 1318.51, now + 0.00, 0.9, 0.45);
-      playChimeBell(ctx, 1567.98, now + 0.22, 1.0, 0.5);
-      playChimeBell(ctx, 2093.00, now + 0.46, 1.4, 0.55);
-      playChimeBell(ctx, 1567.98, now + 0.95, 0.8, 0.4);
-      playChimeBell(ctx, 2093.00, now + 1.15, 1.5, 0.55);
+      playChimeBell(ctx, 1318.51, now + 0.00, 0.9, 0.6);
+      playChimeBell(ctx, 1567.98, now + 0.22, 1.0, 0.7);
+      playChimeBell(ctx, 2093.00, now + 0.46, 1.4, 0.8);
+      playChimeBell(ctx, 1567.98, now + 0.95, 0.8, 0.6);
+      playChimeBell(ctx, 2093.00, now + 1.15, 1.5, 0.8);
     }
+    return true;
   } catch (e) {
     console.warn('Could not play order notification:', e);
+    return false;
   }
 }
 
 /**
  * Test sound trigger
  */
-export function testSound(soundType) {
+export async function testSound(soundType) {
   try {
     const ctx = getAudioContext();
     if (!ctx) return false;
 
     if (ctx.state === 'suspended') {
-      ctx.resume().catch(() => {});
+      await ctx.resume().catch(() => {});
     }
 
     const type = soundType || currentSoundType || 'alarm';
     const now = ctx.currentTime + 0.03;
 
     if (type === 'alarm' || type === 'loud_alarm') {
-      // 2 test alarm bursts
-      const testBursts = [
-        { t: 0.00, f1: 2200, f2: 2770, dur: 0.12 },
-        { t: 0.16, f1: 2200, f2: 2770, dur: 0.12 },
-        { t: 0.32, f1: 2200, f2: 2770, dur: 0.12 },
-        { t: 0.48, f1: 2600, f2: 3300, dur: 0.24 },
-        { t: 0.85, f1: 2500, f2: 3200, dur: 0.14 },
-        { t: 1.03, f1: 2900, f2: 3700, dur: 0.35 },
-      ];
-      testBursts.forEach(({ t, f1, f2, dur }) => {
-        const bStart = now + t;
-        const osc1 = ctx.createOscillator();
-        const gain1 = ctx.createGain();
-        osc1.type = 'sawtooth';
-        osc1.frequency.setValueAtTime(f1, bStart);
-        gain1.gain.setValueAtTime(0.001, bStart);
-        gain1.gain.linearRampToValueAtTime(0.9, bStart + 0.015);
-        gain1.gain.setValueAtTime(0.9, bStart + dur - 0.02);
-        gain1.gain.linearRampToValueAtTime(0.001, bStart + dur);
-        osc1.connect(gain1);
-        gain1.connect(ctx.destination);
-        osc1.start(bStart);
-        osc1.stop(bStart + dur);
-
-        const osc2 = ctx.createOscillator();
-        const gain2 = ctx.createGain();
-        osc2.type = 'square';
-        osc2.frequency.setValueAtTime(f2, bStart);
-        gain2.gain.setValueAtTime(0.001, bStart);
-        gain2.gain.linearRampToValueAtTime(0.65, bStart + 0.015);
-        gain2.gain.setValueAtTime(0.65, bStart + dur - 0.02);
-        gain2.gain.linearRampToValueAtTime(0.001, bStart + dur);
-        osc2.connect(gain2);
-        gain2.connect(ctx.destination);
-        osc2.start(bStart);
-        osc2.stop(bStart + dur);
-      });
+      // Test alarm with full piercing bursts
+      playLoudAlarm(ctx, now);
     } else if (type === 'beep') {
-      playDigitalBeep(ctx, 1760, now, 0.12, 0.45);
-      playDigitalBeep(ctx, 2349.32, now + 0.18, 0.22, 0.5);
+      playDigitalBeep(ctx, 1760, now, 0.12, 0.7);
+      playDigitalBeep(ctx, 2349.32, now + 0.18, 0.22, 0.8);
     } else {
-      playChimeBell(ctx, 1567.98, now, 0.8, 0.5);
-      playChimeBell(ctx, 2093.00, now + 0.20, 1.2, 0.55);
+      playChimeBell(ctx, 1567.98, now, 0.8, 0.7);
+      playChimeBell(ctx, 2093.00, now + 0.20, 1.2, 0.8);
     }
     return true;
   } catch (e) {

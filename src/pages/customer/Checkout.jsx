@@ -31,12 +31,11 @@ const Checkout = () => {
   const { user } = useAuth();
   const nav = useNavigate();
 
-  // Fulfillment type: 'delivery' (Kiszállítás) | 'pickup' (Elvitel) | 'dinein' (Helyben)
+  // Fulfillment type: 'delivery' (Kiszállítás) | 'pickup' (Elvitel)
   const [orderType, setOrderType] = useState('delivery');
 
   const [custName, setCustName] = useState(user?.name || '');
   const [phone, setPhone] = useState(user?.phone || '');
-  const [tableOrNote, setTableOrNote] = useState('');
   const [addr, setAddr] = useState({
     zip: zones[0]?.zip || '',
     city: zones[0]?.city || '',
@@ -110,27 +109,14 @@ const Checkout = () => {
     } else if (orderType === 'pickup') {
       if (!custName.trim()) return toast.error('Elvitelhez kérjük, add meg a neved!');
       if (!phone.trim()) return toast.error('Elvitelhez kérjük, add meg a telefonszámod!');
-    } else if (orderType === 'dinein') {
-      // Helyben fogyasztás: nem szükséges semmilyen adatot megadni!
     }
 
     setBusy(true);
     try {
-      const finalName = orderType === 'dinein'
-        ? (custName.trim() || 'Helyben fogyasztás')
-        : (custName.trim() || (user?.name || 'Vendég'));
-
-      const finalPhone = orderType === 'dinein'
-        ? (phone.trim() || '')
-        : phone.trim();
-
-      const finalStreet = orderType === 'delivery'
-        ? addr.street.trim()
-        : (orderType === 'pickup' ? 'Elvitel az étteremben' : 'Helyben fogyasztás');
-
-      const finalNote = orderType === 'dinein'
-        ? (tableOrNote ? `Asztal/Megjegyzés: ${tableOrNote}` : 'Helyben fogyasztás')
-        : (orderType === 'pickup' ? (addr.note || 'Elvitel') : addr.note);
+      const finalName = custName.trim() || (user?.name || 'Vendég');
+      const finalPhone = phone.trim();
+      const finalStreet = orderType === 'delivery' ? addr.street.trim() : 'Elvitel az étteremben';
+      const finalNote = orderType === 'pickup' ? (addr.note || 'Elvitel') : addr.note;
 
       const o = await addOrder({
         customerName: finalName,
@@ -184,9 +170,9 @@ const Checkout = () => {
         {/* 1. Fulfillment Type Selection */}
         <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-5">
           <h3 className="font-bold text-white mb-3 flex items-center gap-2">
-            <span className="text-[#d4af37]">1.</span> Fogyasztás / Átvétel módja
+            <span className="text-[#d4af37]">1.</span> Átvétel módja
           </h3>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <button
               type="button"
               onClick={() => setOrderType('delivery')}
@@ -197,7 +183,7 @@ const Checkout = () => {
               }`}
             >
               <Bike size={22} />
-              <span className="text-xs sm:text-sm font-bold">Kiszállítás</span>
+              <span className="text-xs sm:text-sm font-bold">Házhoz szállítás</span>
             </button>
 
             <button
@@ -211,19 +197,6 @@ const Checkout = () => {
             >
               <ShoppingBag size={22} />
               <span className="text-xs sm:text-sm font-bold">Elvitel</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setOrderType('dinein')}
-              className={`p-3 rounded-xl border flex flex-col items-center justify-center gap-2 text-center transition-all cursor-pointer ${
-                orderType === 'dinein'
-                  ? 'gold-gradient text-black font-bold border-transparent shadow-md'
-                  : 'bg-neutral-950 text-neutral-300 border-neutral-800 hover:border-neutral-600'
-              }`}
-            >
-              <Store size={22} />
-              <span className="text-xs sm:text-sm font-bold">Helyben</span>
             </button>
           </div>
         </div>
@@ -358,46 +331,6 @@ const Checkout = () => {
           </div>
         )}
 
-        {orderType === 'dinein' && (
-          <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-5 space-y-4 animate-in fade-in">
-            <h3 className="font-bold text-white flex items-center gap-2">
-              <span className="text-[#d4af37]">2.</span> Helyben fogyasztás
-            </h3>
-
-            <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-sm text-emerald-200 flex items-start gap-3">
-              <Store size={22} className="text-emerald-400 shrink-0 mt-0.5" />
-              <div>
-                <div className="font-bold text-white text-base">Helyben fogyasztás – Nincs szükség adatokra!</div>
-                <div className="mt-1 text-xs text-emerald-300">
-                  Rendelésed közvetlenül bekerül a konyhára. Nem kell megadnod címet vagy személyes adatot, csak nyomd meg a rendelés leadása gombot!
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-neutral-400 font-semibold mb-1 block">Asztalszám vagy Név (nem kötelező)</label>
-                <input
-                  placeholder="pl. 4-es asztal vagy Zoli"
-                  value={custName}
-                  onChange={(e) => setCustName(e.target.value)}
-                  className="dark-input"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs text-neutral-400 font-semibold mb-1 block">Egyéb kérés a konyhának (opcionális)</label>
-                <input
-                  placeholder="pl. sok szalvétával kérjük"
-                  value={tableOrNote}
-                  onChange={(e) => setTableOrNote(e.target.value)}
-                  className="dark-input"
-                />
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* 3. Payment Method */}
         <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-5">
           <h3 className="font-bold text-white mb-3 flex items-center gap-2">
@@ -426,7 +359,7 @@ const Checkout = () => {
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-bold text-white">Kosár összegzés</h3>
             <span className="text-xs px-2.5 py-1 rounded-full bg-neutral-800 text-neutral-300 font-semibold">
-              {orderType === 'delivery' ? '🛵 Kiszállítás' : orderType === 'pickup' ? '🛍️ Elvitel' : '🍽️ Helyben'}
+              {orderType === 'delivery' ? '🛵 Házhoz szállítás' : '🛍️ Elvitel'}
             </span>
           </div>
 
@@ -484,7 +417,7 @@ const Checkout = () => {
 
           {belowMin && (
             <div className="mt-3 text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-md px-3 py-2">
-              Minimum rendelés házhozszállítás esetén {formatFt(MIN_ORDER)}. Még {formatFt(MIN_ORDER - subtotal)} szükséges (vagy válassz Elvitelt / Helyben fogyasztást).
+              Minimum rendelés házhozszállítás esetén {formatFt(MIN_ORDER)}. Még {formatFt(MIN_ORDER - subtotal)} szükséges (vagy válassz Elvitelt).
             </div>
           )}
 

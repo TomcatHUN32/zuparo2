@@ -74,7 +74,7 @@ const MenuAdmin = () => {
   } = useData();
   const currentCategories = Array.isArray(categories) ? categories : [];
   const [cat, setCat] = useState('all');
-  const [draft, setDraft] = useState(() => ({ ...empty, category: currentCategories[0]?.id || 'egyeb' }));
+  const [draft, setDraft] = useState(() => ({ ...empty, category: currentCategories[0]?.id || currentCategories[0]?.name || '' }));
   const [editing, setEditing] = useState(null);
   const [ed, setEd] = useState(empty);
   const [recipeFor, setRecipeFor] = useState(null); // menu item id
@@ -133,35 +133,40 @@ const MenuAdmin = () => {
     }
   };
 
-  const handleDeleteCategory = async (id, name) => {
+  const handleDeleteCategory = async (id, name, options = {}) => {
     const dishesInCat = menu.filter((m) =>
       normalizeCatMatch(m.category, id, allCategories) ||
       normalizeCatMatch(m.category, name, allCategories)
     );
-    let confirmMsg = `Biztosan törölni szeretnéd a(z) "${name}" kategóriát?`;
-    if (dishesInCat.length > 0) {
-      confirmMsg = `Figyelem! Ebben a kategóriában (${name}) jelenleg ${dishesInCat.length} db étel van!\n\nBiztosan törlöd a kategóriát? Az ételek az "egyeb" kategóriába kerülnek át.`;
-    }
-    if (!window.confirm(confirmMsg)) return;
+
+    const otherCategories = allCategories.filter((c) =>
+      c.id !== id && c.name?.toLowerCase() !== name?.toLowerCase() && c.id?.toLowerCase() !== 'all'
+    );
+
+    const deleteDishes = Boolean(options.deleteDishes);
+    const moveTo = options.moveTo || (otherCategories[0]?.name || otherCategories[0]?.id || '');
 
     setCatLoading(true);
     try {
-      await deleteCategory(id, name);
-      // Clean up local menu items that had this category
-      menu.forEach((m) => {
-        if (
-          normalizeCatMatch(m.category, id, allCategories) ||
-          normalizeCatMatch(m.category, name, allCategories)
-        ) {
-          updateMenuItem(m.id, { category: 'egyeb' }).catch(() => {});
+      await deleteCategory(id, name, { moveTo: deleteDishes ? undefined : moveTo, deleteDishes });
+      
+      // Update local menu items
+      if (deleteDishes) {
+        for (const m of dishesInCat) {
+          await deleteMenuItem(m.id).catch(() => {});
         }
-      });
+      } else if (moveTo) {
+        for (const m of dishesInCat) {
+          await updateMenuItem(m.id, { category: moveTo }).catch(() => {});
+        }
+      }
+
       if (reloadPublic) await reloadPublic();
       if (cat === id || cat === name) {
         setCat('all');
         setDraft((prev) => ({ ...prev, category: '' }));
       }
-      toast.success(`"${name}" kategória sikeresen törölve.`);
+      toast.success(`"${name}" kategória sikeresen törölve!`);
     } catch (err) {
       console.error('Delete category error:', err);
       toast.error('Hiba a kategória törlésekor');
@@ -978,6 +983,41 @@ const CategoryModal = ({
   onDeleteCategory,
   loading,
 }) => {
+  const [deletingCat, setDeletingCat] = useState(null);
+  const [deleteMode, setDeleteMode] = useState('move');
+  const [targetCatForMove, setTargetCatForMove] = useState('');
+
+  const otherCatsForMove = React.useMemo(() => {
+    if (!deletingCat) return [];
+    return allCategories.filter(
+      (c) =>
+        c.id !== deletingCat.id &&
+        c.name?.toLowerCase() !== deletingCat.name?.toLowerCase() &&
+        c.id?.toLowerCase() !== 'all'
+    );
+  }, [allCategories, deletingCat]);
+
+  React.useEffect(() => {
+    if (otherCatsForMove.length > 0 && !targetCatForMove) {
+      setTargetCatForMove(otherCatsForMove[0].name || otherCatsForMove[0].id);
+    }
+  }, [otherCatsForMove, targetCatForMove]);
+
+  const confirmDelete = () => {
+    if (!deletingCat) return;
+    if (deletingCat.dishCount > 0) {
+      if (deleteMode === 'delete_dishes') {
+        onDeleteCategory(deletingCat.id, deletingCat.name, { deleteDishes: true });
+      } else {
+        const target = targetCatForMove || otherCatsForMove[0]?.name || otherCatsForMove[0]?.id || '';
+        onDeleteCategory(deletingCat.id, deletingCat.name, { moveTo: target, deleteDishes: false });
+      }
+    } else {
+      onDeleteCategory(deletingCat.id, deletingCat.name, {});
+    }
+    setDeletingCat(null);
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-xs">
       <div className="bg-white rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl border border-neutral-200">
@@ -992,13 +1032,106 @@ const CategoryModal = ({
           </div>
           <button
             onClick={onClose}
-            className="text-neutral-400 hover:text-white h-8 w-8 rounded-lg flex items-center justify-center hover:bg-neutral-800 transition-colors"
+            className="text-neutral-400 hover:text-white h-8 w-8 rounded-lg flex items-center justify-center hover:bg-neutral-800 transition-colors cursor-pointer"
           >
             <X size={18} />
           </button>
         </div>
 
         <div className="p-6 space-y-6 max-h-[75vh] overflow-y-auto">
+          {/* Active deletion confirmation box */}
+          {deletingCat && (
+            <div className="p-4 space-y-4 bg-rose-50 border border-rose-200 rounded-xl">
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-lg bg-rose-100 text-rose-700">
+                  <Trash2 size={20} />
+                </div>
+                <div className="flex-1">
+                  <h4 className="font-bold text-neutral-900 text-sm">
+                    Biztosan törlöd a(z) "{deletingCat.name}" kategóriát?
+                  </h4>
+                  {deletingCat.dishCount > 0 ? (
+                    <p className="text-xs text-neutral-600 mt-1">
+                      Ebben a kategóriában jelenleg <b>{deletingCat.dishCount} db étel</b> található.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-neutral-500 mt-1">
+                      Ez a kategória üres, biztonságosan törölhető.
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {deletingCat.dishCount > 0 && (
+                <div className="space-y-3 bg-white p-3.5 rounded-lg border border-neutral-200 text-xs">
+                  <p className="font-semibold text-neutral-800">Mi történjen az ételekkel?</p>
+
+                  <label className="flex items-start gap-2.5 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="delMode"
+                      checked={deleteMode === 'move'}
+                      onChange={() => setDeleteMode('move')}
+                      className="mt-0.5 text-amber-500"
+                    />
+                    <div className="flex-1">
+                      <span className="font-medium text-neutral-900">Ételek áthelyezése másik kategóriába:</span>
+                      {otherCatsForMove.length > 0 ? (
+                        <select
+                          value={targetCatForMove}
+                          onChange={(e) => setTargetCatForMove(e.target.value)}
+                          disabled={deleteMode !== 'move'}
+                          className="mt-1.5 block w-full px-2.5 py-1.5 bg-neutral-50 border border-neutral-300 rounded-lg text-xs font-medium focus:ring-1 focus:ring-amber-500"
+                        >
+                          {otherCatsForMove.map((oc) => (
+                            <option key={oc.id} value={oc.name || oc.id}>
+                              {oc.name}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <p className="text-[11px] text-amber-700 mt-0.5">Nincs más kategória.</p>
+                      )}
+                    </div>
+                  </label>
+
+                  <label className="flex items-start gap-2.5 cursor-pointer pt-1">
+                    <input
+                      type="radio"
+                      name="delMode"
+                      checked={deleteMode === 'delete_dishes'}
+                      onChange={() => setDeleteMode('delete_dishes')}
+                      className="mt-0.5 text-rose-500"
+                    />
+                    <div>
+                      <span className="font-medium text-rose-700">Ételek törlése az étlapról is</span>
+                      <p className="text-[11px] text-neutral-500">Mind a {deletingCat.dishCount} étel véglegesen törlődik az étlapról.</p>
+                    </div>
+                  </label>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setDeletingCat(null)}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-neutral-200 hover:bg-neutral-300 text-neutral-700 transition-colors cursor-pointer"
+                >
+                  Mégse
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmDelete}
+                  disabled={loading}
+                  className="px-4 py-1.5 text-xs font-bold rounded-lg bg-rose-600 hover:bg-rose-700 text-white shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Trash2 size={13} />
+                  Kategória végleges törlése
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Create new category */}
           <div className="p-4 rounded-xl bg-amber-50 border border-amber-200">
             <h4 className="text-xs font-bold uppercase tracking-wider text-amber-900 mb-2 flex items-center gap-1.5">
@@ -1057,7 +1190,7 @@ const CategoryModal = ({
                         <button
                           type="button"
                           onClick={() => onUpdateCategory(catId)}
-                          className="p-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md transition-colors"
+                          className="p-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md transition-colors cursor-pointer"
                           title="Mentés"
                         >
                           <Check size={14} />
@@ -1065,7 +1198,7 @@ const CategoryModal = ({
                         <button
                           type="button"
                           onClick={() => setEditingCatId(null)}
-                          className="p-1.5 bg-neutral-200 hover:bg-neutral-300 text-neutral-700 rounded-md transition-colors"
+                          className="p-1.5 bg-neutral-200 hover:bg-neutral-300 text-neutral-700 rounded-md transition-colors cursor-pointer"
                           title="Mégse"
                         >
                           <X size={14} />
@@ -1088,15 +1221,18 @@ const CategoryModal = ({
                               setEditingCatId(catId);
                               setEditingCatName(c.name);
                             }}
-                            className="p-1.5 rounded-md text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 border border-transparent hover:border-neutral-200 transition-colors"
+                            className="p-1.5 rounded-md text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 border border-transparent hover:border-neutral-200 transition-colors cursor-pointer"
                             title="Átnevezés"
                           >
                             <Pencil size={14} />
                           </button>
                           <button
                             type="button"
-                            onClick={() => onDeleteCategory(catId, c.name)}
-                            className="p-1.5 rounded-md text-rose-500 hover:text-rose-700 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition-colors"
+                            onClick={() => {
+                              setDeletingCat({ id: catId, name: c.name, dishCount });
+                              setDeleteMode('move');
+                            }}
+                            className="p-1.5 rounded-md text-rose-500 hover:text-rose-700 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition-colors cursor-pointer"
                             title="Kategória törlése"
                           >
                             <Trash2 size={14} />
