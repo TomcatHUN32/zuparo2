@@ -6,7 +6,7 @@ Ez az útmutató lépésről lépésre végigvezet a rendszer telepítésén és
 
 ## 📋 1. Szükséges előfeltételek
 - **Operációs rendszer:** Ubuntu 22.04 LTS / 24.04 LTS vagy Debian 11/12
-- **Domain név:** pl. `rendeles.zuparo.hu` (az A rekord mutasson a VPS IP címére)
+- **Domain név:** `zuparo.hu` és `www.zuparo.hu` (az A rekord mutasson a VPS IP címére)
 - **Minimum VPS konfiguráció:** 2 CPU mag, 2-4 GB RAM, 20 GB SSD
 
 ---

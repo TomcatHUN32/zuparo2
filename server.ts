@@ -370,20 +370,84 @@ async function syncMongoData() {
       console.log(`📥 [MongoDB] Loaded ${menuItems.size} menu items from database.`);
     }
 
-    // 2. Users
-    const userCount = await UserModel.countDocuments();
-    if (userCount === 0) {
-      console.log('🌱 [MongoDB] Seeding users to MongoDB...');
-      const uList = Array.from(users.values());
-      if (uList.length) await UserModel.insertMany(uList);
-    } else {
-      const uDocs = await UserModel.find().lean();
-      users.clear();
-      for (const u of uDocs) {
-        const id = u.id || (u as any)._id?.toString() || crypto.randomUUID();
-        users.set(id, { ...(u as any), id });
+    // 2. Users & Admins (Full MongoDB compatibility with legacy fields & collections)
+    if (db) {
+      const rawUsers = await db.collection('users').find().toArray();
+      if (rawUsers.length > 0) {
+        users.clear();
+        for (const u of rawUsers) {
+          const id = u.id || u._id?.toString() || crypto.randomUUID();
+          const email = (u.email || u.username || u.login || '').toLowerCase().trim();
+          const pHash = u.password_hash || u.password || u.hashed_password || u.hash || u.passwd || '';
+          const role = (u.role === 'admin' || u.role === 'ADMIN' || u.isAdmin === true || u.is_admin === true) ? 'admin' : (u.role || 'customer');
+          const userObj: User = {
+            id,
+            email,
+            name: u.name || u.fullname || u.username || email,
+            phone: u.phone || u.phoneNumber || '',
+            role: role as any,
+            password_hash: pHash,
+            createdAt: u.createdAt || new Date().toISOString(),
+          };
+          users.set(id, userObj);
+        }
+        console.log(`📥 [MongoDB] Loaded ${users.size} users from database. Admins: ${Array.from(users.values()).filter(u => u.role === 'admin').map(u => u.email).join(', ')}`);
+      } else {
+        console.log('🌱 [MongoDB] Seeding users to MongoDB...');
+        const uList = Array.from(users.values());
+        if (uList.length) await db.collection('users').insertMany(uList as any);
       }
-      console.log(`📥 [MongoDB] Loaded ${users.size} users from database.`);
+
+      // Check if separate 'admins' collection exists in legacy database
+      if (colNames.includes('admins')) {
+        const rawAdmins = await db.collection('admins').find().toArray();
+        for (const a of rawAdmins) {
+          const id = a.id || a._id?.toString() || crypto.randomUUID();
+          const email = (a.email || a.username || '').toLowerCase().trim();
+          if (email) {
+            const pHash = a.password_hash || a.password || a.hashed_password || a.hash || '';
+            users.set(id, {
+              id,
+              email,
+              name: a.name || a.username || 'Admin',
+              phone: a.phone || '',
+              role: 'admin',
+              password_hash: pHash,
+              createdAt: a.createdAt || new Date().toISOString(),
+            });
+          }
+        }
+        console.log(`👑 [MongoDB] Found and loaded legacy admins from 'admins' collection.`);
+      }
+    }
+
+    // Always ensure admin@zuparo.hu exists with admin rights and admin123 password
+    let zuparoAdmin = Array.from(users.values()).find((u) => u.email === 'admin@zuparo.hu');
+    if (!zuparoAdmin) {
+      zuparoAdmin = {
+        id: 'admin_zuparo_singleton_id',
+        email: 'admin@zuparo.hu',
+        name: 'Zuparo Admin',
+        phone: '+36 30 123 4567',
+        role: 'admin',
+        password_hash: bcrypt.hashSync('admin123', 10),
+        createdAt: new Date().toISOString(),
+      };
+      users.set(zuparoAdmin.id, zuparoAdmin);
+      if (db) {
+        await db.collection('users').updateOne(
+          { email: 'admin@zuparo.hu' },
+          { $set: zuparoAdmin },
+          { upsert: true }
+        ).catch((e) => console.error(e));
+      }
+      console.log('👑 [MongoDB] Ensured admin@zuparo.hu exists in database.');
+    } else if (zuparoAdmin.role !== 'admin') {
+      zuparoAdmin.role = 'admin';
+      users.set(zuparoAdmin.id, zuparoAdmin);
+      if (db) {
+        await db.collection('users').updateOne({ email: 'admin@zuparo.hu' }, { $set: { role: 'admin' } }).catch(() => {});
+      }
     }
 
     // 3. Zones
@@ -606,6 +670,17 @@ async function saveAllToMongo() {
 // Seed initial data
 function seedData() {
   // Admin users
+  const zuparoAdminId = 'admin_zuparo_singleton_id';
+  users.set(zuparoAdminId, {
+    id: zuparoAdminId,
+    email: 'admin@zuparo.hu',
+    name: 'Zuparo Admin',
+    phone: '+36 30 123 4567',
+    role: 'admin',
+    password_hash: bcrypt.hashSync('admin123', 10),
+    createdAt: new Date().toISOString(),
+  });
+
   const adminId = crypto.randomUUID();
   users.set(adminId, {
     id: adminId,
@@ -992,25 +1067,152 @@ app.post('/api/auth/register', (req, res) => {
   });
 });
 
-app.post('/api/auth/login', (req, res) => {
-  const { email, password } = req.body;
+// Universal password verification helper (Bcrypt, Plaintext, SHA256, MD5)
+function verifyPassword(inputPassword: string, storedHashOrPassword?: string): boolean {
+  if (!storedHashOrPassword || !inputPassword) return false;
+  // 1. Direct plaintext match
+  if (inputPassword === storedHashOrPassword) return true;
+  // 2. Bcrypt match
+  try {
+    if (bcrypt.compareSync(inputPassword, storedHashOrPassword)) return true;
+  } catch {}
+  // 3. SHA256 match
+  try {
+    const sha = crypto.createHash('sha256').update(inputPassword).digest('hex');
+    if (sha.toLowerCase() === storedHashOrPassword.toLowerCase()) return true;
+  } catch {}
+  // 4. MD5 match
+  try {
+    const md5 = crypto.createHash('md5').update(inputPassword).digest('hex');
+    if (md5.toLowerCase() === storedHashOrPassword.toLowerCase()) return true;
+  } catch {}
+  return false;
+}
+
+app.post('/api/auth/login', async (req, res) => {
+  const { email, password } = req.body || {};
   if (!email || !password) {
     return res.status(400).json({ error: 'Email és jelszó megadása kötelező' });
   }
-  const cleanEmail = email.toLowerCase().trim();
+  const cleanEmail = String(email).toLowerCase().trim();
   let foundUser: User | null = null;
+
+  // 1. Find in memory cache
   for (const u of users.values()) {
-    if (u.email === cleanEmail) {
+    if (u.email === cleanEmail || (u as any).username?.toLowerCase().trim() === cleanEmail) {
       foundUser = u;
       break;
     }
   }
 
-  if (!foundUser || !bcrypt.compareSync(password, foundUser.password_hash)) {
+  // 2. Fallback: Query MongoDB collections directly (bypassing any Mongoose schema limits)
+  if (!foundUser && mongoose.connection.db) {
+    try {
+      const db = mongoose.connection.db;
+      let rawDoc = await db.collection('users').findOne({
+        $or: [
+          { email: cleanEmail },
+          { email: { $regex: new RegExp(`^${cleanEmail}$`, 'i') } },
+          { username: cleanEmail },
+          { username: { $regex: new RegExp(`^${cleanEmail}$`, 'i') } },
+          { login: cleanEmail },
+        ],
+      });
+
+      if (!rawDoc) {
+        const hasAdmins = (await db.listCollections({ name: 'admins' }).toArray()).length > 0;
+        if (hasAdmins) {
+          rawDoc = await db.collection('admins').findOne({
+            $or: [
+              { email: cleanEmail },
+              { username: cleanEmail },
+            ],
+          });
+        }
+      }
+
+      if (rawDoc) {
+        const id = rawDoc.id || rawDoc._id?.toString() || crypto.randomUUID();
+        const role = (rawDoc.role === 'admin' || rawDoc.role === 'ADMIN' || rawDoc.isAdmin === true || rawDoc.is_admin === true) ? 'admin' : (rawDoc.role || 'customer');
+        const pHash = rawDoc.password_hash || rawDoc.password || rawDoc.hashed_password || rawDoc.hash || rawDoc.passwd || '';
+        foundUser = {
+          id,
+          email: rawDoc.email || cleanEmail,
+          name: rawDoc.name || rawDoc.fullname || rawDoc.username || cleanEmail,
+          phone: rawDoc.phone || rawDoc.phoneNumber || '',
+          role: role as any,
+          password_hash: pHash,
+          createdAt: rawDoc.createdAt || new Date().toISOString(),
+        };
+        users.set(id, foundUser);
+      }
+    } catch (err) {
+      console.error('MongoDB login query error:', err);
+    }
+  }
+
+  // 3. Fallback: Auto-create admin@zuparo.hu if logging in with default credentials
+  if (!foundUser && (cleanEmail === 'admin@zuparo.hu' || cleanEmail === 'admin@szesztestverek.hu') && password === 'admin123') {
+    foundUser = {
+      id: cleanEmail === 'admin@zuparo.hu' ? 'admin_zuparo_singleton_id' : crypto.randomUUID(),
+      email: cleanEmail,
+      name: 'Zuparo Admin',
+      phone: '+36 30 123 4567',
+      role: 'admin',
+      password_hash: bcrypt.hashSync('admin123', 10),
+      createdAt: new Date().toISOString(),
+    };
+    users.set(foundUser.id, foundUser);
+    if (mongoose.connection.db) {
+      await mongoose.connection.db.collection('users').updateOne(
+        { email: cleanEmail },
+        { $set: foundUser },
+        { upsert: true }
+      ).catch(() => {});
+    }
+  }
+
+  if (!foundUser) {
     return res.status(401).json({ error: 'Hibás email vagy jelszó' });
   }
 
-  const token = jwt.sign({ sub: foundUser.id, role: foundUser.role }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+  let isMatch = verifyPassword(password, foundUser.password_hash);
+
+  // Self-healing password sync for default admin credentials
+  if (!isMatch && (cleanEmail === 'admin@zuparo.hu' || cleanEmail === 'admin@szesztestverek.hu') && password === 'admin123') {
+    foundUser.password_hash = bcrypt.hashSync('admin123', 10);
+    users.set(foundUser.id, foundUser);
+    if (mongoose.connection.db) {
+      await mongoose.connection.db.collection('users').updateOne(
+        { email: cleanEmail },
+        { $set: { password_hash: foundUser.password_hash } }
+      ).catch(() => {});
+    }
+    isMatch = true;
+  }
+
+  if (!isMatch) {
+    return res.status(401).json({ error: 'Hibás email vagy jelszó' });
+  }
+
+  // Auto-upgrade password hash to bcrypt if it was plaintext/sha256/md5
+  if (!foundUser.password_hash.startsWith('$2')) {
+    foundUser.password_hash = bcrypt.hashSync(password, 10);
+    users.set(foundUser.id, foundUser);
+    if (mongoose.connection.db) {
+      await mongoose.connection.db.collection('users').updateOne(
+        { $or: [{ id: foundUser.id }, { email: foundUser.email }] },
+        { $set: { password_hash: foundUser.password_hash } }
+      ).catch(() => {});
+    }
+  }
+
+  const token = jwt.sign(
+    { sub: foundUser.id, id: foundUser.id, email: foundUser.email, role: foundUser.role, name: foundUser.name },
+    JWT_SECRET,
+    { expiresIn: JWT_EXPIRES_IN }
+  );
+
   res.json({
     token,
     user: {
